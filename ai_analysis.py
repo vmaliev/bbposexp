@@ -11,7 +11,7 @@ from config import Config
 def analyze_with_ai(analysis_data: Dict[str, Any]) -> Dict[str, List[str]]:
     """
     Analyze position data and provide actionable suggestions.
-    Uses OpenAI if available, otherwise falls back to rule-based analysis.
+    Uses AI (Gemini, Qwen, or OpenAI) if available, otherwise falls back to rule-based analysis.
     
     Args:
         analysis_data: Complete analysis from analyzer module
@@ -19,12 +19,64 @@ def analyze_with_ai(analysis_data: Dict[str, Any]) -> Dict[str, List[str]]:
     Returns:
         Dictionary with categorized suggestions (urgent, recommended, optional)
     """
-    if Config.has_openai():
+    provider = Config.get_ai_provider()
+    
+    if provider == 'gemini':
+        try:
+            return _gemini_analysis(analysis_data)
+        except Exception as e:
+            print(f"⚠️  Gemini analysis failed ({str(e)}), trying Qwen...")
+            if Config.has_qwen():
+                try:
+                    return _qwen_analysis(analysis_data)
+                except Exception as e2:
+                    print(f"⚠️  Qwen analysis also failed ({str(e2)}), trying OpenAI...")
+                    if Config.has_openai():
+                        try:
+                            return _openai_analysis(analysis_data)
+                        except Exception as e3:
+                            print(f"⚠️  OpenAI analysis also failed ({str(e3)}), using fallback...")
+                            return _fallback_analysis(analysis_data)
+                    else:
+                        return _fallback_analysis(analysis_data)
+            elif Config.has_openai():
+                try:
+                    return _openai_analysis(analysis_data)
+                except Exception as e2:
+                    print(f"⚠️  OpenAI analysis also failed ({str(e2)}), using fallback...")
+                    return _fallback_analysis(analysis_data)
+            else:
+                return _fallback_analysis(analysis_data)
+                
+    elif provider == 'qwen':
+        try:
+            return _qwen_analysis(analysis_data)
+        except Exception as e:
+            print(f"⚠️  Qwen analysis failed ({str(e)}), trying OpenAI...")
+            if Config.has_openai():
+                try:
+                    return _openai_analysis(analysis_data)
+                except Exception as e2:
+                    print(f"⚠️  OpenAI analysis also failed ({str(e2)}), using fallback...")
+                    return _fallback_analysis(analysis_data)
+            else:
+                print(f"⚠️  Using fallback analysis...")
+                return _fallback_analysis(analysis_data)
+                
+    elif provider == 'openai':
         try:
             return _openai_analysis(analysis_data)
         except Exception as e:
-            print(f"⚠️  OpenAI analysis failed ({str(e)}), using fallback...")
-            return _fallback_analysis(analysis_data)
+            print(f"⚠️  OpenAI analysis failed ({str(e)}), trying Gemini...")
+            if Config.has_gemini():
+                try:
+                    return _gemini_analysis(analysis_data)
+                except Exception as e2:
+                    print(f"⚠️  Gemini analysis also failed ({str(e2)}), using fallback...")
+                    return _fallback_analysis(analysis_data)
+            else:
+                print(f"⚠️  Using fallback analysis...")
+                return _fallback_analysis(analysis_data)
     else:
         return _fallback_analysis(analysis_data)
 
@@ -116,6 +168,203 @@ Provide suggestions in JSON format:
     except json.JSONDecodeError:
         # If parsing fails, use fallback
         return _fallback_analysis(analysis_data)
+
+
+def _qwen_analysis(analysis_data: Dict[str, Any]) -> Dict[str, List[str]]:
+    """
+    Use Qwen API (Alibaba Cloud) to generate intelligent suggestions.
+    
+    Args:
+        analysis_data: Complete analysis data
+    
+    Returns:
+        Categorized suggestions
+    """
+    import requests
+    
+    # Prepare prompt (same as OpenAI)
+    system_prompt = """You are an expert cryptocurrency futures trading risk analyst. 
+Analyze the provided portfolio data and provide specific, actionable suggestions.
+Focus on: liquidation risks, over-leverage, concentration risk, and hedging opportunities.
+Be concise and specific. Provide 2-4 suggestions per category."""
+    
+    user_prompt = f"""Analyze this futures portfolio and provide actionable suggestions:
+
+Portfolio Summary:
+- Long Exposure: ${analysis_data['portfolio']['total_long_exposure']:,.2f}
+- Short Exposure: ${analysis_data['portfolio']['total_short_exposure']:,.2f}
+- Bias: {analysis_data['portfolio']['bias']}
+- Total Positions: {analysis_data['portfolio']['total_positions']}
+- Total PnL: ${analysis_data['portfolio']['total_unrealized_pnl']:,.2f}
+
+Risk Metrics:
+- High Leverage Positions: {analysis_data['risks']['high_leverage_count']}
+- Close to Liquidation: {analysis_data['risks']['close_liquidation_count']}
+
+Top Positions:
+{json.dumps([{
+    'symbol': p['symbol'],
+    'side': p['side'],
+    'leverage': p['leverage'],
+    'liq_distance': f"{p['liquidation_distance_pct']:.2f}%",
+    'pnl': p['unrealized_pnl']
+} for p in analysis_data['positions'][:5]], indent=2)}
+
+Provide suggestions in JSON format:
+{{
+    "urgent": ["suggestion 1", "suggestion 2"],
+    "recommended": ["suggestion 1", "suggestion 2"],
+    "optional": ["suggestion 1", "suggestion 2"]
+}}"""
+    
+    # Call Qwen API (via DashScope)
+    headers = {
+        'Authorization': f'Bearer {Config.QWEN_API_KEY}',
+        'Content-Type': 'application/json'
+    }
+    
+    payload = {
+        'model': 'qwen-turbo',
+        'input': {
+            'messages': [
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'user', 'content': user_prompt}
+            ]
+        },
+        'parameters': {
+            'result_format': 'message'
+        }
+    }
+    
+    response = requests.post(
+        'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation',
+        headers=headers,
+        json=payload,
+        timeout=30
+    )
+    response.raise_for_status()
+    
+    result = response.json()
+    
+    if 'output' in result and 'choices' in result['output']:
+        content = result['output']['choices'][0]['message']['content']
+        
+        # Try to parse JSON from response
+        try:
+            # Extract JSON if wrapped in markdown code blocks
+            if '```json' in content:
+                content = content.split('```json')[1].split('```')[0].strip()
+            elif '```' in content:
+                content = content.split('```')[1].split('```')[0].strip()
+            
+            suggestions = json.loads(content)
+            return suggestions
+        except json.JSONDecodeError:
+            # If parsing fails, use fallback
+            return _fallback_analysis(analysis_data)
+    else:
+        raise Exception(f"Unexpected Qwen API response: {result}")
+
+
+def _gemini_analysis(analysis_data: Dict[str, Any]) -> Dict[str, List[str]]:
+    """
+    Use Google Gemini API to generate intelligent suggestions.
+    
+    Args:
+        analysis_data: Complete analysis data
+    
+    Returns:
+        Categorized suggestions
+    """
+    import requests
+    
+    # Prepare prompt (same as others)
+    system_prompt = """You are an expert cryptocurrency futures trading risk analyst. 
+Analyze the provided portfolio data and provide specific, actionable suggestions.
+Focus on: liquidation risks, over-leverage, concentration risk, and hedging opportunities.
+Be concise and specific. Provide 2-4 suggestions per category."""
+    
+    user_prompt = f"""Analyze this futures portfolio and provide actionable suggestions:
+
+Portfolio Summary:
+- Long Exposure: ${analysis_data['portfolio']['total_long_exposure']:,.2f}
+- Short Exposure: ${analysis_data['portfolio']['total_short_exposure']:,.2f}
+- Bias: {analysis_data['portfolio']['bias']}
+- Total Positions: {analysis_data['portfolio']['total_positions']}
+- Total PnL: ${analysis_data['portfolio']['total_unrealized_pnl']:,.2f}
+
+Risk Metrics:
+- High Leverage Positions: {analysis_data['risks']['high_leverage_count']}
+- Close to Liquidation: {analysis_data['risks']['close_liquidation_count']}
+
+Top Positions:
+{json.dumps([{
+    'symbol': p['symbol'],
+    'side': p['side'],
+    'leverage': p['leverage'],
+    'liq_distance': f"{p['liquidation_distance_pct']:.2f}%",
+    'pnl': p['unrealized_pnl']
+} for p in analysis_data['positions'][:5]], indent=2)}
+
+Provide suggestions in JSON format:
+{{
+    "urgent": ["suggestion 1", "suggestion 2"],
+    "recommended": ["suggestion 1", "suggestion 2"],
+    "optional": ["suggestion 1", "suggestion 2"]
+}}"""
+    
+    # Call Gemini API
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={Config.GEMINI_API_KEY}"
+    
+    headers = {
+        'Content-Type': 'application/json'
+    }
+    
+    payload = {
+        'contents': [{
+            'parts': [{
+                'text': f"{system_prompt}\n\n{user_prompt}"
+            }]
+        }],
+        'generationConfig': {
+            'temperature': 0.7,
+            'maxOutputTokens': 1000,
+            'responseMimeType': 'application/json'
+        }
+    }
+    
+    response = requests.post(
+        url,
+        headers=headers,
+        json=payload,
+        timeout=30
+    )
+    response.raise_for_status()
+    
+    result = response.json()
+    
+    if 'candidates' in result and result['candidates']:
+        content = result['candidates'][0]['content']['parts'][0]['text']
+        
+        # Debug: Print raw content
+        # print(f"DEBUG: Gemini raw response: {content}")
+        
+        # Parse JSON response
+        try:
+            # Clean up markdown code blocks if present
+            if '```json' in content:
+                content = content.split('```json')[1].split('```')[0].strip()
+            elif '```' in content:
+                content = content.split('```')[1].split('```')[0].strip()
+                
+            suggestions = json.loads(content)
+            return suggestions
+        except json.JSONDecodeError as e:
+            print(f"⚠️  Gemini JSON parse error: {str(e)}")
+            print(f"Raw content: {content[:100]}...")
+            return _fallback_analysis(analysis_data)
+    else:
+        raise Exception(f"Unexpected Gemini API response: {result}")
 
 
 def _fallback_analysis(analysis_data: Dict[str, Any]) -> Dict[str, List[str]]:

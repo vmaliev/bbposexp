@@ -118,6 +118,186 @@ def print_suggestions(suggestions: Dict[str, Any]) -> None:
             print(f"  - {suggestion}")
 
 
+def list_positions_command() -> int:
+    """
+    List all open positions in a simple table format.
+    
+    Returns:
+        Exit code (0 for success, 1 for error)
+    """
+    print("📋 Bybit Positions List")
+    print("=" * 60)
+    
+    # Validate configuration
+    is_valid, error_msg = Config.validate()
+    if not is_valid:
+        print(f"\n❌ Configuration Error: {error_msg}")
+        print("\nPlease set the following environment variables:")
+        print("  - BYBIT_API_KEY")
+        print("  - BYBIT_API_SECRET")
+        return 1
+    
+    print("\n📡 Fetching positions from Bybit...")
+    
+    try:
+        # Fetch positions
+        raw_positions = bybit_api.get_positions()
+        
+        if not raw_positions:
+            print("\n✨ No open positions found!")
+            return 0
+        
+        print(f"✅ Found {len(raw_positions)} open position(s)\n")
+        
+        # Print header
+        print("=" * 120)
+        print(f"{'SYMBOL':<15} {'SIDE':<6} {'SIZE':<15} {'ENTRY':<12} {'MARK':<12} {'AMOUNT':<15} {'PNL':<15} {'LEV':<5}")
+        print("=" * 120)
+        
+        # Sort by symbol
+        sorted_positions = sorted(raw_positions, key=lambda p: p.get('symbol', ''))
+        
+        total_pnl = 0.0
+        total_amount = 0.0
+        
+        for pos in sorted_positions:
+            symbol = pos.get('symbol', 'N/A')
+            side = pos.get('side', 'N/A')
+            size = float(pos.get('size', 0))
+            entry_price = float(pos.get('avgPrice', 0))
+            mark_price = float(pos.get('markPrice', 0))
+            unrealized_pnl = float(pos.get('unrealisedPnl', 0))
+            leverage = float(pos.get('leverage', 0))
+            
+            # Calculate position value (size * mark price)
+            position_value = size * mark_price
+            
+            total_pnl += unrealized_pnl
+            total_amount += position_value
+            
+            # Format PnL with color indicator
+            pnl_sign = '+' if unrealized_pnl >= 0 else ''
+            pnl_str = f"{pnl_sign}${unrealized_pnl:,.2f}"
+            pnl_indicator = "🟢" if unrealized_pnl >= 0 else "🔴"
+            
+            print(f"{symbol:<15} {side:<6} {size:<15,.4f} ${entry_price:<11,.4f} ${mark_price:<11,.4f} ${position_value:<14,.2f} {pnl_indicator} {pnl_str:<13} {leverage:.1f}x")
+        
+        print("=" * 120)
+        total_sign = '+' if total_pnl >= 0 else ''
+        print(f"\n💰 Total Position Value: ${total_amount:,.2f} USDT")
+        print(f"💰 Total Unrealized PnL: {total_sign}${total_pnl:,.2f} USDT")
+        print("\n" + "=" * 60 + "\n")
+        
+        return 0
+    
+    except Exception as e:
+        print(f"\n❌ Error: {str(e)}")
+        return 1
+
+
+def orders_command() -> int:
+    """
+    List all open orders (limit, stop loss, take profit).
+    
+    Returns:
+        Exit code (0 for success, 1 for error)
+    """
+    print("📝 Bybit Open Orders")
+    print("=" * 60)
+    
+    # Validate configuration
+    is_valid, error_msg = Config.validate()
+    if not is_valid:
+        print(f"\n❌ Configuration Error: {error_msg}")
+        print("\nPlease set the following environment variables:")
+        print("  - BYBIT_API_KEY")
+        print("  - BYBIT_API_SECRET")
+        return 1
+    
+    print("\n📡 Fetching orders from Bybit...")
+    
+    try:
+        # Fetch all orders
+        all_orders = bybit_api.get_open_orders()
+        
+        if not all_orders:
+            print("\n✨ No open orders found!")
+            return 0
+        
+        print(f"✅ Found {len(all_orders)} open order(s)\n")
+        
+        # Group orders by type
+        limit_orders = []
+        stop_orders = []
+        
+        for order in all_orders:
+            order_type = order.get('orderType', '')
+            stop_order_type = order.get('stopOrderType', '')
+            
+            if stop_order_type or order_type in ['Stop', 'StopLimit']:
+                stop_orders.append(order)
+            else:
+                limit_orders.append(order)
+        
+        # Display Limit Orders
+        if limit_orders:
+            print("=" * 130)
+            print("📊 LIMIT ORDERS".center(130))
+            print("=" * 130)
+            print(f"{'SYMBOL':<15} {'SIDE':<6} {'TYPE':<12} {'QTY':<15} {'PRICE':<15} {'STATUS':<12} {'TIME CREATED':<20}")
+            print("=" * 130)
+            
+            for order in sorted(limit_orders, key=lambda o: o.get('symbol', '')):
+                symbol = order.get('symbol', 'N/A')
+                side = order.get('side', 'N/A')
+                order_type = order.get('orderType', 'N/A')
+                qty = float(order.get('qty', 0))
+                price = float(order.get('price', 0))
+                status = order.get('orderStatus', 'N/A')
+                created_time = order.get('createdTime', 'N/A')
+                
+                # Convert timestamp to readable format
+                if created_time != 'N/A':
+                    from datetime import datetime
+                    created_time = datetime.fromtimestamp(int(created_time) / 1000).strftime('%Y-%m-%d %H:%M:%S')
+                
+                side_emoji = "🟢" if side == "Buy" else "🔴"
+                print(f"{symbol:<15} {side_emoji} {side:<4} {order_type:<12} {qty:<15,.4f} ${price:<14,.4f} {status:<12} {created_time:<20}")
+        
+        # Display Stop/Conditional Orders
+        if stop_orders:
+            print("\n" + "=" * 130)
+            print("🎯 STOP LOSS / TAKE PROFIT ORDERS".center(130))
+            print("=" * 130)
+            print(f"{'SYMBOL':<15} {'SIDE':<6} {'TYPE':<15} {'QTY':<15} {'TRIGGER':<15} {'PRICE':<15} {'STATUS':<12}")
+            print("=" * 130)
+            
+            for order in sorted(stop_orders, key=lambda o: o.get('symbol', '')):
+                symbol = order.get('symbol', 'N/A')
+                side = order.get('side', 'N/A')
+                stop_order_type = order.get('stopOrderType', order.get('orderType', 'N/A'))
+                qty = float(order.get('qty', 0))
+                trigger_price = float(order.get('triggerPrice', 0))
+                price = float(order.get('price', 0))
+                status = order.get('orderStatus', 'N/A')
+                
+                side_emoji = "🟢" if side == "Buy" else "🔴"
+                
+                # Determine if it's SL or TP based on side and trigger
+                order_label = stop_order_type
+                
+                print(f"{symbol:<15} {side_emoji} {side:<4} {order_label:<15} {qty:<15,.4f} ${trigger_price:<14,.4f} ${price:<14,.4f} {status:<12}")
+        
+        print("\n" + "=" * 60 + "\n")
+        
+        return 0
+    
+    except Exception as e:
+        print(f"\n❌ Error: {str(e)}")
+        return 1
+
+
+
 def analyze_command() -> int:
     """
     Main analyze command - fetch positions and generate report.
@@ -185,6 +365,8 @@ def print_usage() -> None:
     """Print usage information."""
     print("Bybit Position Analysis Bot")
     print("\nUsage:")
+    print("  python bot.py list       List all open positions")
+    print("  python bot.py orders     List all open orders (limit, SL, TP)")
     print("  python bot.py analyze    Analyze current positions")
     print("  python bot.py help       Show this help message")
     print("\nConfiguration:")
@@ -202,7 +384,11 @@ def main() -> int:
     
     command = sys.argv[1].lower()
     
-    if command == 'analyze':
+    if command == 'list':
+        return list_positions_command()
+    elif command == 'orders':
+        return orders_command()
+    elif command == 'analyze':
         return analyze_command()
     elif command in ['help', '--help', '-h']:
         print_usage()

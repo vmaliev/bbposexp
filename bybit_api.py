@@ -7,6 +7,7 @@ import hmac
 import hashlib
 import time
 import requests
+import urllib.parse
 from typing import Dict, Any, Optional, List
 from config import Config
 
@@ -58,9 +59,16 @@ def signed_request(
     timestamp = str(int(time.time() * 1000))
     recv_window = str(Config.RECV_WINDOW)
     
-    # Build query string for GET requests
+    # Build query string for GET requests (use raw values for signature)
     if method.upper() == 'GET':
-        query_string = '&'.join([f"{k}={v}" for k, v in sorted(params.items())])
+        # Build query string with proper encoding
+        # Sort parameters alphabetically
+        sorted_params = sorted(params.items())
+        query_parts = []
+        for k, v in sorted_params:
+            # Don't URL-encode for signature - use raw values
+            query_parts.append(f"{k}={v}")
+        query_string = '&'.join(query_parts)
     else:
         query_string = ''
     
@@ -81,7 +89,10 @@ def signed_request(
     
     try:
         if method.upper() == 'GET':
-            response = requests.get(url, params=params, headers=headers, timeout=10)
+            # Build URL manually with query string to avoid double-encoding
+            if query_string:
+                url = f"{url}?{query_string}"
+            response = requests.get(url, headers=headers, timeout=10)
         elif method.upper() == 'POST':
             response = requests.post(url, json=params, headers=headers, timeout=10)
         else:
@@ -103,7 +114,7 @@ def signed_request(
 
 def get_positions(category: str = 'linear', settle_coin: str = 'USDT') -> List[Dict[str, Any]]:
     """
-    Fetch all open positions from Bybit.
+    Fetch all open positions from Bybit with pagination support.
     
     Args:
         category: Product type ('linear' for USDT perpetuals)
@@ -116,21 +127,38 @@ def get_positions(category: str = 'linear', settle_coin: str = 'USDT') -> List[D
         Exception: If API request fails
     """
     endpoint = '/v5/position/list'
-    params = {
-        'category': category,
-        'settleCoin': settle_coin
-    }
+    all_positions = []
+    cursor = None
     
     try:
-        response = signed_request('GET', endpoint, params)
-        
-        # Extract positions from response
-        result = response.get('result', {})
-        positions = result.get('list', [])
+        # Loop through all pages
+        while True:
+            params = {
+                'category': category,
+                'settleCoin': settle_coin
+            }
+            
+            # Add cursor for pagination (if not first request)
+            if cursor:
+                params['cursor'] = cursor
+            
+            response = signed_request('GET', endpoint, params)
+            
+            # Extract positions from response
+            result = response.get('result', {})
+            positions = result.get('list', [])
+            
+            # Add positions to our list
+            all_positions.extend(positions)
+            
+            # Check if there are more pages
+            cursor = result.get('nextPageCursor')
+            if not cursor:
+                break
         
         # Filter only positions with non-zero size
         open_positions = [
-            pos for pos in positions
+            pos for pos in all_positions
             if float(pos.get('size', 0)) > 0
         ]
         
@@ -138,6 +166,107 @@ def get_positions(category: str = 'linear', settle_coin: str = 'USDT') -> List[D
     
     except Exception as e:
         raise Exception(f"Failed to fetch positions: {str(e)}")
+
+
+def get_open_orders(category: str = 'linear', settle_coin: str = 'USDT') -> List[Dict[str, Any]]:
+    """
+    Fetch all open orders from Bybit (limit, market, conditional orders).
+    
+    Args:
+        category: Product type ('linear' for USDT perpetuals)
+        settle_coin: Settlement coin (USDT, USDC, etc.)
+    
+    Returns:
+        List of order dictionaries
+    
+    Raises:
+        Exception: If API request fails
+    """
+    endpoint = '/v5/order/realtime'
+    all_orders = []
+    cursor = None
+    
+    try:
+        # Loop through all pages
+        while True:
+            params = {
+                'category': category,
+                'settleCoin': settle_coin
+            }
+            
+            # Add cursor for pagination (if not first request)
+            if cursor:
+                params['cursor'] = cursor
+            
+            response = signed_request('GET', endpoint, params)
+            
+            # Extract orders from response
+            result = response.get('result', {})
+            orders = result.get('list', [])
+            
+            # Add orders to our list
+            all_orders.extend(orders)
+            
+            # Check if there are more pages
+            cursor = result.get('nextPageCursor')
+            if not cursor:
+                break
+        
+        return all_orders
+    
+    except Exception as e:
+        raise Exception(f"Failed to fetch open orders: {str(e)}")
+
+
+def get_conditional_orders(category: str = 'linear', settle_coin: str = 'USDT') -> List[Dict[str, Any]]:
+    """
+    Fetch all conditional orders (stop loss, take profit triggers).
+    
+    Args:
+        category: Product type ('linear' for USDT perpetuals)
+        settle_coin: Settlement coin (USDT, USDC, etc.)
+    
+    Returns:
+        List of conditional order dictionaries
+    
+    Raises:
+        Exception: If API request fails
+    """
+    endpoint = '/v5/order/realtime'
+    all_orders = []
+    cursor = None
+    
+    try:
+        # Loop through all pages
+        while True:
+            params = {
+                'category': category,
+                'settleCoin': settle_coin,
+                'orderFilter': 'StopOrder'  # Filter for conditional orders
+            }
+            
+            # Add cursor for pagination (if not first request)
+            if cursor:
+                params['cursor'] = cursor
+            
+            response = signed_request('GET', endpoint, params)
+            
+            # Extract orders from response
+            result = response.get('result', {})
+            orders = result.get('list', [])
+            
+            # Add orders to our list
+            all_orders.extend(orders)
+            
+            # Check if there are more pages
+            cursor = result.get('nextPageCursor')
+            if not cursor:
+                break
+        
+        return all_orders
+    
+    except Exception as e:
+        raise Exception(f"Failed to fetch conditional orders: {str(e)}")
 
 
 def test_connection() -> bool:
