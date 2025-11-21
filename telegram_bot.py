@@ -328,15 +328,16 @@ class TelegramBot:
             message = await update.message.reply_text("🔍 Analyzing positions...")
         
         try:
-            # Fetch positions
+            # Fetch positions and orders
             positions = bybit_api.get_positions()
+            orders = bybit_api.get_open_orders()
             
-            if not positions:
-                await message.edit_text("ℹ️ No open positions to analyze.")
+            if not positions and not orders:
+                await message.edit_text("ℹ️ No open positions or orders to analyze.")
                 return
             
-            # Analyze positions
-            analysis = analyzer.analyze_positions(positions)
+            # Analyze positions and orders
+            analysis = analyzer.analyze_positions(positions, orders)
             
             # Generate AI suggestions
             suggestions = ai_analysis.analyze_with_ai(analysis)

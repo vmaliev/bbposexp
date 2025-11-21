@@ -109,17 +109,44 @@ def analyze_position(position: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def analyze_portfolio(positions: List[Dict[str, Any]]) -> Dict[str, Any]:
+def analyze_orders(orders: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Analyze open orders.
+    
+    Args:
+        orders: Raw order data
+    
+    Returns:
+        Analyzed orders
+    """
+    analyzed_orders = []
+    for order in orders:
+        analyzed_orders.append({
+            'symbol': order.get('symbol', ''),
+            'side': order.get('side', '').lower(),
+            'type': order.get('orderType', '').lower(),
+            'price': float(order.get('price', 0)),
+            'qty': float(order.get('qty', 0)),
+            'order_id': order.get('orderId', '')
+        })
+    return analyzed_orders
+
+
+def analyze_portfolio(positions: List[Dict[str, Any]], orders: List[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Analyze entire portfolio and compute aggregate metrics.
     
     Args:
         positions: List of analyzed positions
+        orders: List of analyzed orders
     
     Returns:
         Portfolio analysis with metrics and risks
     """
-    if not positions:
+    if orders is None:
+        orders = []
+
+    if not positions and not orders:
         return {
             'portfolio': {
                 'total_long_exposure': 0,
@@ -128,9 +155,11 @@ def analyze_portfolio(positions: List[Dict[str, Any]]) -> Dict[str, Any]:
                 'bias': 'neutral',
                 'clusters': {},
                 'total_positions': 0,
+                'total_orders': 0,
                 'total_unrealized_pnl': 0
             },
             'positions': [],
+            'orders': [],
             'risks': {
                 'highest_risk_position': None,
                 'high_leverage_count': 0,
@@ -204,9 +233,11 @@ def analyze_portfolio(positions: List[Dict[str, Any]]) -> Dict[str, Any]:
             'bias': bias,
             'clusters': cluster_distribution,
             'total_positions': len(positions),
+            'total_orders': len(orders),
             'total_unrealized_pnl': total_unrealized_pnl
         },
         'positions': positions,
+        'orders': orders,
         'risks': {
             'highest_risk_position': highest_risk_position,
             'high_leverage_count': len(high_leverage_positions),
@@ -216,12 +247,13 @@ def analyze_portfolio(positions: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def analyze_positions(raw_positions: List[Dict[str, Any]]) -> Dict[str, Any]:
+def analyze_positions(raw_positions: List[Dict[str, Any]], raw_orders: List[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Main analysis function - processes raw positions and returns complete analysis.
     
     Args:
         raw_positions: Raw position data from Bybit API
+        raw_orders: Raw order data from Bybit API (optional)
     
     Returns:
         Complete portfolio and position analysis
@@ -229,7 +261,12 @@ def analyze_positions(raw_positions: List[Dict[str, Any]]) -> Dict[str, Any]:
     # Analyze each position
     analyzed_positions = [analyze_position(pos) for pos in raw_positions]
     
+    # Analyze orders if provided
+    analyzed_orders = []
+    if raw_orders:
+        analyzed_orders = analyze_orders(raw_orders)
+    
     # Analyze portfolio
-    portfolio_analysis = analyze_portfolio(analyzed_positions)
+    portfolio_analysis = analyze_portfolio(analyzed_positions, analyzed_orders)
     
     return portfolio_analysis

@@ -96,11 +96,21 @@ def _openai_analysis(analysis_data: Dict[str, Any]) -> Dict[str, List[str]]:
     # Prepare prompt
     system_prompt = """You are an expert cryptocurrency futures trading risk analyst. 
 Analyze the provided portfolio data and provide specific, actionable suggestions.
-Focus on: liquidation risks, over-leverage, concentration risk, and hedging opportunities.
+Focus on: liquidation risks, over-leverage, concentration risk, hedging opportunities, and open orders.
 
 IMPORTANT: The trader has a 4% daily risk tolerance. All suggestions should consider this risk limit.
 Be concise and specific. Provide 2-4 suggestions per category."""
     
+    orders_info = ""
+    if analysis_data.get('orders'):
+        orders_info = "\n\nOpen Orders:\n" + json.dumps([{
+            'symbol': o['symbol'],
+            'side': o['side'],
+            'type': o['type'],
+            'price': o['price'],
+            'qty': o['qty']
+        } for o in analysis_data['orders'][:5]], indent=2)
+
     user_prompt = f"""Analyze this futures portfolio and provide actionable suggestions:
 
 Portfolio Summary:
@@ -108,6 +118,7 @@ Portfolio Summary:
 - Short Exposure: ${analysis_data['portfolio']['total_short_exposure']:,.2f}
 - Bias: {analysis_data['portfolio']['bias']}
 - Total Positions: {analysis_data['portfolio']['total_positions']}
+- Total Orders: {analysis_data['portfolio'].get('total_orders', 0)}
 - Total PnL: ${analysis_data['portfolio']['total_unrealized_pnl']:,.2f}
 
 Risk Metrics:
@@ -121,7 +132,7 @@ Top Positions:
     'leverage': p['leverage'],
     'liq_distance': f"{p['liquidation_distance_pct']:.2f}%",
     'pnl': p['unrealized_pnl']
-} for p in analysis_data['positions'][:5]], indent=2)}
+} for p in analysis_data['positions'][:5]], indent=2)}{orders_info}
 
 Risk Management:
 - Daily Risk Tolerance: 4% of account equity
@@ -191,11 +202,21 @@ def _qwen_analysis(analysis_data: Dict[str, Any]) -> Dict[str, List[str]]:
     # Prepare prompt (same as OpenAI)
     system_prompt = """You are an expert cryptocurrency futures trading risk analyst. 
 Analyze the provided portfolio data and provide specific, actionable suggestions.
-Focus on: liquidation risks, over-leverage, concentration risk, and hedging opportunities.
+Focus on: liquidation risks, over-leverage, concentration risk, hedging opportunities, and open orders.
 
 IMPORTANT: The trader has a 4% daily risk tolerance. All suggestions should consider this risk limit.
 Be concise and specific. Provide 2-4 suggestions per category."""
     
+    orders_info = ""
+    if analysis_data.get('orders'):
+        orders_info = "\n\nOpen Orders:\n" + json.dumps([{
+            'symbol': o['symbol'],
+            'side': o['side'],
+            'type': o['type'],
+            'price': o['price'],
+            'qty': o['qty']
+        } for o in analysis_data['orders'][:5]], indent=2)
+
     user_prompt = f"""Analyze this futures portfolio and provide actionable suggestions:
 
 Portfolio Summary:
@@ -203,6 +224,7 @@ Portfolio Summary:
 - Short Exposure: ${analysis_data['portfolio']['total_short_exposure']:,.2f}
 - Bias: {analysis_data['portfolio']['bias']}
 - Total Positions: {analysis_data['portfolio']['total_positions']}
+- Total Orders: {analysis_data['portfolio'].get('total_orders', 0)}
 - Total PnL: ${analysis_data['portfolio']['total_unrealized_pnl']:,.2f}
 
 Risk Metrics:
@@ -216,7 +238,7 @@ Top Positions:
     'leverage': p['leverage'],
     'liq_distance': f"{p['liquidation_distance_pct']:.2f}%",
     'pnl': p['unrealized_pnl']
-} for p in analysis_data['positions'][:5]], indent=2)}
+} for p in analysis_data['positions'][:5]], indent=2)}{orders_info}
 
 Risk Management:
 - Daily Risk Tolerance: 4% of account equity
@@ -293,11 +315,21 @@ def _gemini_analysis(analysis_data: Dict[str, Any]) -> Dict[str, List[str]]:
     # Prepare prompt (same as others)
     system_prompt = """You are an expert cryptocurrency futures trading risk analyst. 
 Analyze the provided portfolio data and provide specific, actionable suggestions.
-Focus on: liquidation risks, over-leverage, concentration risk, and hedging opportunities.
+Focus on: liquidation risks, over-leverage, concentration risk, hedging opportunities, and open orders.
 
 IMPORTANT: The trader has a 4% daily risk tolerance. All suggestions should consider this risk limit.
 Be concise and specific. Provide 2-4 suggestions per category."""
     
+    orders_info = ""
+    if analysis_data.get('orders'):
+        orders_info = "\n\nOpen Orders:\n" + json.dumps([{
+            'symbol': o['symbol'],
+            'side': o['side'],
+            'type': o['type'],
+            'price': o['price'],
+            'qty': o['qty']
+        } for o in analysis_data['orders'][:5]], indent=2)
+
     user_prompt = f"""Analyze this futures portfolio and provide actionable suggestions:
 
 Portfolio Summary:
@@ -305,6 +337,7 @@ Portfolio Summary:
 - Short Exposure: ${analysis_data['portfolio']['total_short_exposure']:,.2f}
 - Bias: {analysis_data['portfolio']['bias']}
 - Total Positions: {analysis_data['portfolio']['total_positions']}
+- Total Orders: {analysis_data['portfolio'].get('total_orders', 0)}
 - Total PnL: ${analysis_data['portfolio']['total_unrealized_pnl']:,.2f}
 
 Risk Metrics:
@@ -318,7 +351,7 @@ Top Positions:
     'leverage': p['leverage'],
     'liq_distance': f"{p['liquidation_distance_pct']:.2f}%",
     'pnl': p['unrealized_pnl']
-} for p in analysis_data['positions'][:5]], indent=2)}
+} for p in analysis_data['positions'][:5]], indent=2)}{orders_info}
 
 Risk Management:
 - Daily Risk Tolerance: 4% of account equity
@@ -401,6 +434,7 @@ def _fallback_analysis(analysis_data: Dict[str, Any]) -> Dict[str, List[str]]:
     
     portfolio = analysis_data['portfolio']
     positions = analysis_data['positions']
+    orders = analysis_data.get('orders', [])
     risks = analysis_data['risks']
     
     # URGENT: Close liquidation positions
@@ -446,6 +480,10 @@ def _fallback_analysis(analysis_data: Dict[str, Any]) -> Dict[str, List[str]]:
         recommended.append(
             f"Portfolio is heavily {portfolio['bias'].upper()} biased - consider {opposite} hedges"
         )
+        
+    # RECOMMENDED: Orders check
+    if len(orders) > 10:
+        recommended.append(f"You have {len(orders)} open orders. Consider cleaning up old orders.")
     
     # OPTIONAL: Stop losses
     if any(p['leverage_risk'] in ['medium', 'high'] for p in positions):
