@@ -269,6 +269,74 @@ def get_conditional_orders(category: str = 'linear', settle_coin: str = 'USDT') 
         raise Exception(f"Failed to fetch conditional orders: {str(e)}")
 
 
+def get_wallet_balance(account_type: str = 'UNIFIED', coin: str = 'USDT') -> Dict[str, Any]:
+    """
+    Fetch wallet balance information from Bybit.
+    
+    Args:
+        account_type: Account type ('UNIFIED', 'CONTRACT', etc.)
+        coin: Coin to get balance for (default: USDT)
+    
+    Returns:
+        Dictionary with balance information including:
+        - totalEquity: Total account equity
+        - totalAvailableBalance: Available balance for trading
+        - totalMarginBalance: Total margin balance
+        - totalInitialMargin: Total initial margin
+        - totalMaintenanceMargin: Total maintenance margin
+    
+    Raises:
+        Exception: If API request fails
+    """
+    endpoint = '/v5/account/wallet-balance'
+    
+    try:
+        params = {
+            'accountType': account_type
+        }
+        
+        response = signed_request('GET', endpoint, params)
+        
+        # Extract wallet data from response
+        result = response.get('result', {})
+        accounts = result.get('list', [])
+        
+        if not accounts:
+            return {
+                'totalEquity': '0',
+                'totalAvailableBalance': '0',
+                'totalMarginBalance': '0',
+                'totalInitialMargin': '0',
+                'totalMaintenanceMargin': '0',
+                'coin': []
+            }
+        
+        # Get the first account (usually there's only one for UNIFIED)
+        account = accounts[0]
+        
+        # Find USDT coin data
+        coins = account.get('coin', [])
+        usdt_data = None
+        for c in coins:
+            if c.get('coin') == coin:
+                usdt_data = c
+                break
+        
+        return {
+            'totalEquity': account.get('totalEquity', '0'),
+            'totalAvailableBalance': account.get('totalAvailableBalance', '0'),
+            'totalMarginBalance': account.get('totalMarginBalance', '0'),
+            'totalInitialMargin': account.get('totalInitialMargin', '0'),
+            'totalMaintenanceMargin': account.get('totalMaintenanceMargin', '0'),
+            'accountIMRate': account.get('accountIMRate', '0'),
+            'accountMMRate': account.get('accountMMRate', '0'),
+            'coin_data': usdt_data if usdt_data else {}
+        }
+    
+    except Exception as e:
+        raise Exception(f"Failed to fetch wallet balance: {str(e)}")
+
+
 def test_connection() -> bool:
     """
     Test API connection and credentials.

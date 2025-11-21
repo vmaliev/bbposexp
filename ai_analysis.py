@@ -97,6 +97,8 @@ def _openai_analysis(analysis_data: Dict[str, Any]) -> Dict[str, List[str]]:
     system_prompt = """You are an expert cryptocurrency futures trading risk analyst. 
 Analyze the provided portfolio data and provide specific, actionable suggestions.
 Focus on: liquidation risks, over-leverage, concentration risk, and hedging opportunities.
+
+IMPORTANT: The trader has a 4% daily risk tolerance. All suggestions should consider this risk limit.
 Be concise and specific. Provide 2-4 suggestions per category."""
     
     user_prompt = f"""Analyze this futures portfolio and provide actionable suggestions:
@@ -120,6 +122,10 @@ Top Positions:
     'liq_distance': f"{p['liquidation_distance_pct']:.2f}%",
     'pnl': p['unrealized_pnl']
 } for p in analysis_data['positions'][:5]], indent=2)}
+
+Risk Management:
+- Daily Risk Tolerance: 4% of account equity
+- Ensure position sizing and leverage align with this risk limit
 
 Provide suggestions in JSON format:
 {{
@@ -186,6 +192,8 @@ def _qwen_analysis(analysis_data: Dict[str, Any]) -> Dict[str, List[str]]:
     system_prompt = """You are an expert cryptocurrency futures trading risk analyst. 
 Analyze the provided portfolio data and provide specific, actionable suggestions.
 Focus on: liquidation risks, over-leverage, concentration risk, and hedging opportunities.
+
+IMPORTANT: The trader has a 4% daily risk tolerance. All suggestions should consider this risk limit.
 Be concise and specific. Provide 2-4 suggestions per category."""
     
     user_prompt = f"""Analyze this futures portfolio and provide actionable suggestions:
@@ -209,6 +217,10 @@ Top Positions:
     'liq_distance': f"{p['liquidation_distance_pct']:.2f}%",
     'pnl': p['unrealized_pnl']
 } for p in analysis_data['positions'][:5]], indent=2)}
+
+Risk Management:
+- Daily Risk Tolerance: 4% of account equity
+- Ensure position sizing and leverage align with this risk limit
 
 Provide suggestions in JSON format:
 {{
@@ -282,6 +294,8 @@ def _gemini_analysis(analysis_data: Dict[str, Any]) -> Dict[str, List[str]]:
     system_prompt = """You are an expert cryptocurrency futures trading risk analyst. 
 Analyze the provided portfolio data and provide specific, actionable suggestions.
 Focus on: liquidation risks, over-leverage, concentration risk, and hedging opportunities.
+
+IMPORTANT: The trader has a 4% daily risk tolerance. All suggestions should consider this risk limit.
 Be concise and specific. Provide 2-4 suggestions per category."""
     
     user_prompt = f"""Analyze this futures portfolio and provide actionable suggestions:
@@ -305,6 +319,10 @@ Top Positions:
     'liq_distance': f"{p['liquidation_distance_pct']:.2f}%",
     'pnl': p['unrealized_pnl']
 } for p in analysis_data['positions'][:5]], indent=2)}
+
+Risk Management:
+- Daily Risk Tolerance: 4% of account equity
+- Ensure position sizing and leverage align with this risk limit
 
 Provide suggestions in JSON format:
 {{

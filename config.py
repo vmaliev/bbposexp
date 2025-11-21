@@ -31,6 +31,9 @@ class Config:
     # AI Provider preference (openai, qwen, gemini, or auto)
     AI_PROVIDER: str = os.getenv('AI_PROVIDER', 'auto')
     
+    # Telegram Bot credentials (optional)
+    TELEGRAM_BOT_TOKEN: Optional[str] = os.getenv('TELEGRAM_BOT_TOKEN')
+    
     # Request settings
     RECV_WINDOW: int = 5000  # milliseconds
     
