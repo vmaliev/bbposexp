@@ -33,6 +33,7 @@ class Config:
     
     # Telegram Bot credentials (optional)
     TELEGRAM_BOT_TOKEN: Optional[str] = os.getenv('TELEGRAM_BOT_TOKEN')
+    WEB_APP_URL: Optional[str] = os.getenv('WEB_APP_URL')
     
     # Request settings
     RECV_WINDOW: int = 5000  # milliseconds

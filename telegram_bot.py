@@ -75,7 +75,9 @@ class TelegramBot:
         """Send a message when the command /start is issued."""
         user = update.effective_user
         # Web App URL (Updated with ngrok)
-        web_app_url = "https://334dcf5c00ca.ngrok-free.app" 
+<<<<<<< Updated upstream
+        web_app_url = Config.WEB_APP_URL or "https://example.com"
+>>>>>>> Stashed changes
         
         keyboard = [
             [
