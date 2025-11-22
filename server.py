@@ -34,7 +34,7 @@ async def get_data():
         # Get AI suggestions (cached or fresh)
         # For now, we'll do a quick rule-based analysis to avoid API costs/latency on every poll
         # Ideally, this should be cached or triggered explicitly
-        ai_suggestions = ai_analysis._fallback_analysis(analysis_data)
+        ai_suggestions = ai_analysis.analyze_with_ai(analysis_data)
         
         return {
             "balance": balance,
