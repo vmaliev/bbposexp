@@ -74,9 +74,8 @@ class TelegramBot:
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Send a message when the command /start is issued."""
         user = update.effective_user
-        # Web App URL (Replace with your actual URL when deployed)
-        # For local testing, you might need ngrok
-        web_app_url = "https://your-app-url.com" 
+        # Web App URL (Updated with ngrok)
+        web_app_url = "https://347e3e7154b2.ngrok-free.app" 
         
         keyboard = [
             [
