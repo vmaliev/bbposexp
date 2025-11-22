@@ -126,6 +126,14 @@ function renderPositions() {
                     <span class="label">Leverage</span>
                     <span>${pos.leverage}x</span>
                 </div>
+                <div class="card-row">
+                    <span class="label">Stop Loss</span>
+                    <span>${parseFloat(pos.stopLoss) > 0 ? '$' + parseFloat(pos.stopLoss).toFixed(4) : '-'}</span>
+                </div>
+                <div class="card-row">
+                    <span class="label">Take Profit</span>
+                    <span>${parseFloat(pos.takeProfit) > 0 ? '$' + parseFloat(pos.takeProfit).toFixed(4) : '-'}</span>
+                </div>
             </div>
         `;
     }).join('');

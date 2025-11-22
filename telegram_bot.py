@@ -367,6 +367,23 @@ class TelegramBot:
             # High risk positions
             analyzed_positions = analysis['positions']
             high_risk = [p for p in analyzed_positions if p['leverage_risk'] == 'high']
+            
+            # Risk Metrics
+            risks = analysis['risks']
+            response += f"<b>⚠️ Risk Metrics</b>\n"
+            response += f"High Leverage: {risks['high_leverage_count']}\n"
+            response += f"Close to Liq: {risks['close_liquidation_count']}\n"
+            response += f"No Stop Loss: {risks.get('no_stop_loss_count', 0)}\n"
+            
+            risky_pos_count = len(risks.get('risky_positions', []))
+            if risky_pos_count > 0:
+                response += f"🔴 <b>Unhedged & No SL: {risky_pos_count}</b>\n"
+            else:
+                response += f"Unhedged & No SL: 0\n"
+                
+            hedged_count = len(risks.get('hedged_symbols', []))
+            response += f"Hedged Symbols: {hedged_count}\n\n"
+
             if high_risk:
                 response += f"<b>⚠️ High Risk Positions ({len(high_risk)})</b>\n"
                 for pos in high_risk[:5]:  # Show top 5

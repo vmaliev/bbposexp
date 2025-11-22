@@ -124,6 +124,11 @@ Portfolio Summary:
 Risk Metrics:
 - High Leverage Positions: {analysis_data['risks']['high_leverage_count']}
 - Close to Liquidation: {analysis_data['risks']['close_liquidation_count']}
+- Total Positions without Stop Loss: {analysis_data['risks'].get('no_stop_loss_count', 0)} (Includes hedged positions)
+- CRITICAL Unhedged No-SL Positions: {len(analysis_data['risks'].get('risky_positions', []))}
+- Hedged Symbols: {', '.join(analysis_data['risks'].get('hedged_symbols', [])) if analysis_data['risks'].get('hedged_symbols') else 'None'}
+
+IMPORTANT: 'Total Positions without Stop Loss' is NOT critical if they are hedged. Focus ONLY on 'CRITICAL Unhedged No-SL Positions' for urgent stop-loss warnings. Hedged positions are considered safe.
 
 Top Positions:
 {json.dumps([{
@@ -230,6 +235,11 @@ Portfolio Summary:
 Risk Metrics:
 - High Leverage Positions: {analysis_data['risks']['high_leverage_count']}
 - Close to Liquidation: {analysis_data['risks']['close_liquidation_count']}
+- Total Positions without Stop Loss: {analysis_data['risks'].get('no_stop_loss_count', 0)} (Includes hedged positions)
+- CRITICAL Unhedged No-SL Positions: {len(analysis_data['risks'].get('risky_positions', []))}
+- Hedged Symbols: {', '.join(analysis_data['risks'].get('hedged_symbols', [])) if analysis_data['risks'].get('hedged_symbols') else 'None'}
+
+IMPORTANT: 'Total Positions without Stop Loss' is NOT critical if they are hedged. Focus ONLY on 'CRITICAL Unhedged No-SL Positions' for urgent stop-loss warnings. Hedged positions are considered safe.
 
 Top Positions:
 {json.dumps([{
@@ -343,6 +353,11 @@ Portfolio Summary:
 Risk Metrics:
 - High Leverage Positions: {analysis_data['risks']['high_leverage_count']}
 - Close to Liquidation: {analysis_data['risks']['close_liquidation_count']}
+- Total Positions without Stop Loss: {analysis_data['risks'].get('no_stop_loss_count', 0)} (Includes hedged positions)
+- CRITICAL Unhedged No-SL Positions: {len(analysis_data['risks'].get('risky_positions', []))}
+- Hedged Symbols: {', '.join(analysis_data['risks'].get('hedged_symbols', [])) if analysis_data['risks'].get('hedged_symbols') else 'None'}
+
+IMPORTANT: 'Total Positions without Stop Loss' is NOT critical if they are hedged. Focus ONLY on 'CRITICAL Unhedged No-SL Positions' for urgent stop-loss warnings. Hedged positions are considered safe.
 
 Top Positions:
 {json.dumps([{
@@ -447,6 +462,20 @@ def _fallback_analysis(analysis_data: Dict[str, Any]) -> Dict[str, List[str]]:
             f"({pos['liquidation_distance_pct']:.2f}% from liquidation)"
         )
     
+    # URGENT: Non-Hedged No Stop Loss (Highest Priority)
+    risky_positions = risks.get('risky_positions', [])
+    if risky_positions:
+        for pos in risky_positions[:3]:
+             urgent.append(f"⚠️ CRITICAL: Set SL for {pos['symbol']} {pos['side'].upper()} (Unhedged & No SL)")
+        if len(risky_positions) > 3:
+             urgent.append(f"And {len(risky_positions) - 3} other unhedged positions without Stop Loss.")
+
+    # URGENT: No Stop Loss (General)
+    # Removed general warning for hedged positions to avoid noise
+    no_stop_loss_positions = risks.get('no_stop_loss_positions', [])
+    if no_stop_loss_positions and not risky_positions: 
+        pass # Do nothing if they are all hedged
+
     # URGENT: High leverage positions
     high_lev_positions = [
         p for p in positions if p['leverage'] > 10
@@ -480,6 +509,11 @@ def _fallback_analysis(analysis_data: Dict[str, Any]) -> Dict[str, List[str]]:
         recommended.append(
             f"Portfolio is heavily {portfolio['bias'].upper()} biased - consider {opposite} hedges"
         )
+    
+    # RECOMMENDED: Hedged positions
+    hedged_symbols = risks.get('hedged_symbols', [])
+    if hedged_symbols:
+        recommended.append(f"Review hedged positions for: {', '.join(hedged_symbols)}")
         
     # RECOMMENDED: Orders check
     if len(orders) > 10:

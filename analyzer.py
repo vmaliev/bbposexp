@@ -73,6 +73,8 @@ def analyze_position(position: Dict[str, Any]) -> Dict[str, Any]:
     liq_price = float(position.get('liqPrice', 0)) if position.get('liqPrice') else 0
     leverage = float(position.get('leverage', 1))
     unrealized_pnl = float(position.get('unrealisedPnl', 0))
+    stop_loss = float(position.get('stopLoss') or 0)
+    take_profit = float(position.get('takeProfit') or 0)
     
     # Calculate exposure
     exposure_usdt = abs(size * mark_price)
@@ -101,6 +103,8 @@ def analyze_position(position: Dict[str, Any]) -> Dict[str, Any]:
         'liq_price': liq_price,
         'leverage': leverage,
         'unrealized_pnl': unrealized_pnl,
+        'stop_loss': stop_loss,
+        'take_profit': take_profit,
         'exposure_usdt': exposure_usdt,
         'liquidation_distance_pct': liquidation_distance_pct,
         'pnl_status': pnl_status,
@@ -164,6 +168,9 @@ def analyze_portfolio(positions: List[Dict[str, Any]], orders: List[Dict[str, An
                 'highest_risk_position': None,
                 'high_leverage_count': 0,
                 'close_liquidation_count': 0,
+                'no_stop_loss_count': 0,
+                'no_stop_loss_positions': [],
+                'hedged_symbols': [],
                 'total_risk_score': 0
             }
         }
@@ -213,6 +220,41 @@ def analyze_portfolio(positions: List[Dict[str, Any]], orders: List[Dict[str, An
         pos for pos in positions if pos['liquidation_distance_pct'] < 10
     ]
     
+    # Check for positions without Stop Loss
+    no_stop_loss_positions = [
+        pos for pos in positions if pos['stop_loss'] == 0
+    ]
+    
+    # Check for hedged positions (opposite open)
+    symbol_sides = {}
+    for pos in positions:
+        sym = pos['symbol']
+        if sym not in symbol_sides:
+            symbol_sides[sym] = set()
+        symbol_sides[sym].add(pos['side'])
+    
+    hedged_symbols = [sym for sym, sides in symbol_sides.items() if 'buy' in sides and 'sell' in sides]
+
+    # Check for opposite orders (potential hedges)
+    order_symbol_sides = set()
+    for order in orders:
+        order_symbol_sides.add((order['symbol'], order['side']))
+
+    # Identify non-hedged positions without Stop Loss
+    risky_positions = []
+    for pos in no_stop_loss_positions:
+        # Check if hedged by position
+        if pos['symbol'] in hedged_symbols:
+            continue
+            
+        # Check if hedged by order
+        # If position is 'buy', we need a 'sell' order
+        needed_order_side = 'sell' if pos['side'] == 'buy' else 'buy'
+        if (pos['symbol'], needed_order_side) in order_symbol_sides:
+            continue
+            
+        risky_positions.append(pos)
+    
     # Find highest risk position (combination of high leverage and close liquidation)
     highest_risk_position = None
     highest_risk_score = 0
@@ -242,6 +284,10 @@ def analyze_portfolio(positions: List[Dict[str, Any]], orders: List[Dict[str, An
             'highest_risk_position': highest_risk_position,
             'high_leverage_count': len(high_leverage_positions),
             'close_liquidation_count': len(close_liquidation_positions),
+            'no_stop_loss_count': len(no_stop_loss_positions),
+            'no_stop_loss_positions': no_stop_loss_positions,
+            'risky_positions': risky_positions,
+            'hedged_symbols': hedged_symbols,
             'total_risk_score': highest_risk_score
         }
     }
