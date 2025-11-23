@@ -307,6 +307,65 @@ def get_recent_trades(category: str = 'linear', limit: int = 100, settle_coin: s
         raise Exception(f"Failed to fetch recent trades: {str(e)}")
 
 
+def get_todays_trades(category: str = 'linear', settle_coin: str = 'USDT') -> List[Dict[str, Any]]:
+    """
+    Fetch all trade executions for the current day (UTC).
+    
+    Args:
+        category: Product type ('linear' for USDT perpetuals)
+        settle_coin: Settlement coin
+    
+    Returns:
+        List of execution dictionaries for today
+    """
+    endpoint = '/v5/execution/list'
+    all_executions = []
+    cursor = None
+    
+    # Calculate start of day (UTC)
+    now = datetime.now(timezone.utc)
+    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_time = int(start_of_day.timestamp() * 1000)
+    
+    try:
+        while True:
+            params = {
+                'category': category,
+                'limit': 50,  # Fetch 50 at a time
+                'settleCoin': settle_coin,
+                'startTime': start_time
+            }
+            
+            if cursor:
+                params['cursor'] = cursor
+            
+            response = signed_request('GET', endpoint, params)
+            result = response.get('result', {})
+            executions = result.get('list', [])
+            
+            all_executions.extend(executions)
+            
+            cursor = result.get('nextPageCursor')
+            if not cursor:
+                break
+                
+            # Safety limit to prevent excessive API calls
+            if len(all_executions) > 1000:
+                break
+        
+        # Filter out Funding executions and sort by time (newest first)
+        trades = [
+            exc for exc in all_executions 
+            if exc.get('execType') != 'Funding'
+        ]
+        trades.sort(key=lambda x: int(x.get('execTime', 0)), reverse=True)
+        
+        return trades
+        
+    except Exception as e:
+        raise Exception(f"Failed to fetch today's trades: {str(e)}")
+
+
 def get_closed_pnl(category: str = 'linear', limit: int = 50, start_time: int = None) -> List[Dict[str, Any]]:
     """
     Fetch closed Profit and Loss (Realized PnL).

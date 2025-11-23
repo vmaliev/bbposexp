@@ -62,7 +62,7 @@ async def get_data():
 @app.get("/api/trades")
 async def get_trades():
     try:
-        trades = bybit_api.get_recent_trades()
+        trades = bybit_api.get_todays_trades()
         return trades
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

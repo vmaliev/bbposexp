@@ -450,23 +450,25 @@ class TelegramBot:
         """Show recent trade history."""
         if update.callback_query:
             await update.callback_query.answer()
-            message = await update.callback_query.edit_message_text("📡 Fetching recent trades...")
+            message = await update.callback_query.edit_message_text("📡 Fetching today's trades...")
         else:
-            message = await update.message.reply_text("📡 Fetching recent trades...")
+            message = await update.message.reply_text("📡 Fetching today's trades...")
             
         try:
-            # Fetch recent trades (limit 20 for readability in chat)
-            trades = bybit_api.get_recent_trades(limit=20)
+            # Fetch today's trades
+            trades = bybit_api.get_todays_trades()
             
             if not trades:
                 keyboard = self.get_navigation_keyboard(exclude='trades')
-                await message.edit_text("ℹ️ No recent trades found.", reply_markup=keyboard)
+                await message.edit_text("ℹ️ No trades found for today.", reply_markup=keyboard)
                 return
                 
-            response = f"📈 <b>Recent Trades</b>\n"
+            response = f"📈 <b>Today's Trades</b>\n"
             response += f"{'='*30}\n\n"
             
-            for trade in trades[:15]:  # Show top 15 to avoid message too long
+            display_count = min(len(trades), 20)
+            
+            for trade in trades[:display_count]:  # Show top 20
                 symbol = trade.get('symbol', 'N/A')
                 side = trade.get('side', 'N/A')
                 price = float(trade.get('execPrice', 0))
@@ -484,7 +486,10 @@ class TelegramBot:
                 response += f"  Price: ${price:.4f} | Qty: {qty}\n"
                 response += f"  Time: {time_str}\n\n"
                 
-            response += f"<i>Showing last {len(trades[:15])} trades</i>"
+            if len(trades) > display_count:
+                response += f"<i>Showing last {display_count} of {len(trades)} trades today</i>"
+            else:
+                response += f"<i>Total {len(trades)} trades today</i>"
             
             keyboard = self.get_navigation_keyboard(exclude='trades')
             await message.edit_text(response, parse_mode='HTML', reply_markup=keyboard)
