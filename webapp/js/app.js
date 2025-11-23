@@ -8,6 +8,8 @@ tg.MainButton.hide();
 let state = {
     positions: [],
     orders: [],
+    trades: [],
+    pnl: null,
     balance: null,
     analysis: null
 };
@@ -18,8 +20,12 @@ const els = {
     totalEquity: document.getElementById('total-equity'),
     availableBalance: document.getElementById('available-balance'),
     marginUsage: document.getElementById('margin-usage'),
+    dailyPnlTotal: document.getElementById('daily-pnl-total'),
+    dailyPnlRealized: document.getElementById('daily-pnl-realized'),
+    dailyPnlUnrealized: document.getElementById('daily-pnl-unrealized'),
     positionsList: document.getElementById('positions-list'),
     ordersList: document.getElementById('orders-list'),
+    tradesList: document.getElementById('trades-list'),
     aiSuggestions: document.getElementById('ai-suggestions'),
     tabs: document.querySelectorAll('.tab-btn'),
     tabContents: document.querySelectorAll('.tab-content')
@@ -46,10 +52,21 @@ els.tabs.forEach(btn => {
 // Fetch Data
 async function fetchData() {
     try {
-        const response = await fetch('/api/data');
-        const data = await response.json();
+        const dataResponse = await fetch('/api/data');
+        if (!dataResponse.ok) throw new Error('Failed to fetch main data');
+        const data = await dataResponse.json();
 
-        state = data;
+        let trades = [];
+        try {
+            const tradesResponse = await fetch('/api/trades');
+            if (tradesResponse.ok) {
+                trades = await tradesResponse.json();
+            }
+        } catch (e) {
+            console.warn('Failed to fetch trades:', e);
+        }
+
+        state = { ...data, trades };
         render();
     } catch (error) {
         console.error('Failed to fetch data:', error);
@@ -60,9 +77,35 @@ async function fetchData() {
 // Render Functions
 function render() {
     renderBalance();
+    renderPnL();
     renderPositions();
     renderOrders();
+    renderTrades();
     renderAnalysis();
+}
+
+function renderPnL() {
+    if (!state.pnl) return;
+
+    const total = parseFloat(state.pnl.total);
+    const realized = parseFloat(state.pnl.realized);
+    const unrealized = parseFloat(state.pnl.unrealized);
+
+    const formatMoney = (val) => {
+        const sign = val >= 0 ? '+' : '';
+        return `${sign}$${Math.abs(val).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
+
+    const getColor = (val) => val >= 0 ? 'var(--success-color)' : 'var(--danger-color)';
+
+    els.dailyPnlTotal.textContent = formatMoney(total);
+    els.dailyPnlTotal.style.color = getColor(total);
+
+    els.dailyPnlRealized.textContent = formatMoney(realized);
+    els.dailyPnlRealized.style.color = getColor(realized);
+
+    els.dailyPnlUnrealized.textContent = formatMoney(unrealized);
+    els.dailyPnlUnrealized.style.color = getColor(unrealized);
 }
 
 function renderBalance() {
@@ -164,6 +207,43 @@ function renderOrders() {
                 <div class="card-row">
                     <span class="label">Qty</span>
                     <span>${order.qty}</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderTrades() {
+    if (!state.trades || state.trades.length === 0) {
+        els.tradesList.innerHTML = '<div class="empty-state">No recent trades</div>';
+        return;
+    }
+
+    els.tradesList.innerHTML = state.trades.map(trade => {
+        const sideClass = trade.side === 'Buy' ? 'side-buy' : 'side-sell';
+        const time = new Date(parseInt(trade.execTime)).toLocaleString();
+        const fee = parseFloat(trade.execFee).toFixed(4);
+
+        return `
+            <div class="card">
+                <div class="card-header">
+                    <div class="symbol">
+                        ${trade.symbol}
+                        <span class="side-badge ${sideClass}">${trade.side}</span>
+                    </div>
+                    <div class="time">${time}</div>
+                </div>
+                <div class="card-row">
+                    <span class="label">Price</span>
+                    <span>$${parseFloat(trade.execPrice).toFixed(4)}</span>
+                </div>
+                <div class="card-row">
+                    <span class="label">Qty</span>
+                    <span>${trade.execQty}</span>
+                </div>
+                <div class="card-row">
+                    <span class="label">Fee</span>
+                    <span>${fee}</span>
                 </div>
             </div>
         `;

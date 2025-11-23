@@ -27,6 +27,19 @@ async def get_data():
         balance = bybit_api.get_wallet_balance()
         positions = bybit_api.get_positions()
         orders = bybit_api.get_open_orders()
+        closed_pnl_list = bybit_api.get_closed_pnl()
+        
+        # Calculate PnL metrics
+        realized_pnl = sum(float(item.get('closedPnl', 0)) for item in closed_pnl_list)
+        unrealized_pnl = sum(float(pos.get('unrealisedPnl', 0)) for pos in positions)
+        total_daily_pnl = realized_pnl + unrealized_pnl
+        
+        pnl_data = {
+            "realized": realized_pnl,
+            "unrealized": unrealized_pnl,
+            "total": total_daily_pnl,
+            "trade_count": len(closed_pnl_list)
+        }
         
         # Perform analysis
         analysis_data = analyzer.analyze_positions(positions, orders)
@@ -40,8 +53,17 @@ async def get_data():
             "balance": balance,
             "positions": positions,
             "orders": orders,
+            "pnl": pnl_data,
             "analysis": ai_suggestions
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/trades")
+async def get_trades():
+    try:
+        trades = bybit_api.get_recent_trades()
+        return trades
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

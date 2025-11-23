@@ -28,11 +28,29 @@
                     </div>
                 </div>
             </div>
+            
+            <div class="pnl-card">
+                <div class="pnl-header">
+                    <span class="label">Today's PnL</span>
+                    <span class="value" id="daily-pnl-total">$0.00</span>
+                </div>
+                <div class="pnl-details">
+                    <div class="detail-item">
+                        <span class="label">Realized</span>
+                        <span class="value" id="daily-pnl-realized">$0.00</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="label">Unrealized</span>
+                        <span class="value" id="daily-pnl-unrealized">$0.00</span>
+                    </div>
+                </div>
+            </div>
         </header>
 
         <nav class="tabs">
             <button class="tab-btn active" data-tab="positions">Positions</button>
             <button class="tab-btn" data-tab="orders">Orders</button>
+            <button class="tab-btn" data-tab="trades">Trades</button>
             <button class="tab-btn" data-tab="analysis">AI Analysis</button>
         </nav>
 
@@ -45,6 +63,12 @@
 
             <div id="orders-tab" class="tab-content">
                 <div id="orders-list" class="list-container">
+                    <div class="loading-spinner"></div>
+                </div>
+            </div>
+
+            <div id="trades-tab" class="tab-content">
+                <div id="trades-list" class="list-container">
                     <div class="loading-spinner"></div>
                 </div>
             </div>

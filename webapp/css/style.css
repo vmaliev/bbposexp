@@ -58,8 +58,34 @@ body {
 .balance-details {
     display: flex;
     justify-content: space-between;
-    border-top: 1px solid var(--border-color);
-    padding-top: 12px;
+    margin-top: 15px;
+}
+
+.pnl-card {
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 15px;
+    margin-top: 15px;
+    border: 1px solid var(--border-color);
+}
+
+.pnl-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    font-weight: 600;
+}
+
+.pnl-header .value {
+    font-size: 1.2rem;
+}
+
+.pnl-details {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
 }
 
 .detail-item {

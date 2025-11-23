@@ -47,25 +47,34 @@ class TelegramBot:
         """
         buttons = []
         
-        # Row 1: Balance and Positions
+        # Row 1: Balance and PnL
         row1 = []
         if exclude != 'balance':
             row1.append(InlineKeyboardButton("💰 Balance", callback_data='balance'))
-        if exclude != 'list':
-            row1.append(InlineKeyboardButton("📊 Positions", callback_data='list'))
+        if exclude != 'pnl':
+            row1.append(InlineKeyboardButton("📈 PnL Today", callback_data='pnl'))
         if row1:
             buttons.append(row1)
         
-        # Row 2: Orders and Analyze
+        # Row 2: Positions and Orders
         row2 = []
+        if exclude != 'list':
+            row2.append(InlineKeyboardButton("📊 Positions", callback_data='list'))
         if exclude != 'orders':
             row2.append(InlineKeyboardButton("📋 Orders", callback_data='orders'))
-        if exclude != 'analyze':
-            row2.append(InlineKeyboardButton("🔍 Analyze", callback_data='analyze'))
         if row2:
             buttons.append(row2)
+            
+        # Row 3: Trades and Analyze
+        row3 = []
+        if exclude != 'trades':
+            row3.append(InlineKeyboardButton("🤝 Trades", callback_data='trades'))
+        if exclude != 'analyze':
+            row3.append(InlineKeyboardButton("🔍 Analyze", callback_data='analyze'))
+        if row3:
+            buttons.append(row3)
         
-        # Row 3: Refresh current view
+        # Row 4: Refresh current view
         if exclude:
             buttons.append([InlineKeyboardButton("🔄 Refresh", callback_data=exclude)])
         
@@ -75,9 +84,7 @@ class TelegramBot:
         """Send a message when the command /start is issued."""
         user = update.effective_user
         # Web App URL (Updated with ngrok)
-<<<<<<< Updated upstream
         web_app_url = Config.WEB_APP_URL or "https://example.com"
->>>>>>> Stashed changes
         
         keyboard = [
             [
@@ -85,10 +92,14 @@ class TelegramBot:
             ],
             [
                 InlineKeyboardButton("💰 Balance", callback_data='balance'),
-                InlineKeyboardButton("📊 Positions", callback_data='list'),
+                InlineKeyboardButton("📈 PnL Today", callback_data='pnl'),
             ],
             [
+                InlineKeyboardButton("📊 Positions", callback_data='list'),
                 InlineKeyboardButton("📋 Orders", callback_data='orders'),
+            ],
+            [
+                InlineKeyboardButton("🤝 Trades", callback_data='trades'),
                 InlineKeyboardButton("🔍 Analyze", callback_data='analyze'),
             ],
             [
@@ -103,8 +114,10 @@ class TelegramBot:
             "I can help you monitor and analyze your Bybit positions.\n\n"
             "Choose an option below or use these commands:\n"
             "/balance - Show account balance\n"
+            "/pnl - Show today's PnL\n"
             "/list - List all open positions\n"
             "/orders - List all open orders\n"
+            "/trades - Show recent trades\n"
             "/analyze - Analyze positions with AI\n"
             "/help - Show help message\n"
         )
@@ -118,13 +131,17 @@ class TelegramBot:
             "<b>Available Commands:</b>\n\n"
             "/start - Start the bot and show menu\n"
             "/balance - Show account balance and margin\n"
+            "/pnl - Show today's PnL\n"
             "/list - List all open positions\n"
             "/orders - List all open orders (limit, SL, TP)\n"
+            "/trades - Show recent trades\n"
             "/analyze - Analyze current positions with AI\n"
             "/help - Show this help message\n\n"
             "<b>Features:</b>\n"
             "• Account balance tracking\n"
             "• Real-time position monitoring\n"
+            "• Trade history\n"
+            "• Daily PnL calculation\n"
             "• Risk analysis and metrics\n"
             "• AI-powered suggestions\n"
             "• Order tracking\n\n"
@@ -428,17 +445,119 @@ class TelegramBot:
             keyboard = self.get_navigation_keyboard()
             await message.edit_text(error_msg, reply_markup=keyboard)
             logger.error(f"Error analyzing positions: {e}")
-    
+
+    async def show_recent_trades(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Show recent trade history."""
+        if update.callback_query:
+            await update.callback_query.answer()
+            message = await update.callback_query.edit_message_text("📡 Fetching recent trades...")
+        else:
+            message = await update.message.reply_text("📡 Fetching recent trades...")
+            
+        try:
+            # Fetch recent trades (limit 20 for readability in chat)
+            trades = bybit_api.get_recent_trades(limit=20)
+            
+            if not trades:
+                keyboard = self.get_navigation_keyboard(exclude='trades')
+                await message.edit_text("ℹ️ No recent trades found.", reply_markup=keyboard)
+                return
+                
+            response = f"📈 <b>Recent Trades</b>\n"
+            response += f"{'='*30}\n\n"
+            
+            for trade in trades[:15]:  # Show top 15 to avoid message too long
+                symbol = trade.get('symbol', 'N/A')
+                side = trade.get('side', 'N/A')
+                price = float(trade.get('execPrice', 0))
+                qty = float(trade.get('execQty', 0))
+                time_ms = int(trade.get('execTime', 0))
+                
+                # Format time (simple HH:MM:SS)
+                import datetime
+                dt = datetime.datetime.fromtimestamp(time_ms / 1000)
+                time_str = dt.strftime('%H:%M:%S')
+                
+                side_emoji = "🟢" if side == "Buy" else "🔴"
+                
+                response += f"{side_emoji} <b>{symbol}</b> ({side})\n"
+                response += f"  Price: ${price:.4f} | Qty: {qty}\n"
+                response += f"  Time: {time_str}\n\n"
+                
+            response += f"<i>Showing last {len(trades[:15])} trades</i>"
+            
+            keyboard = self.get_navigation_keyboard(exclude='trades')
+            await message.edit_text(response, parse_mode='HTML', reply_markup=keyboard)
+            
+        except Exception as e:
+            error_msg = f"❌ Error: {str(e)}"
+            keyboard = self.get_navigation_keyboard()
+            await message.edit_text(error_msg, reply_markup=keyboard)
+            logger.error(f"Error fetching trades: {e}")
+
+    async def show_daily_pnl(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Show today's Profit & Loss (Realized + Unrealized)."""
+        if update.callback_query:
+            await update.callback_query.answer()
+            message = await update.callback_query.edit_message_text("💰 Calculating today's PnL...")
+        else:
+            message = await update.message.reply_text("💰 Calculating today's PnL...")
+            
+        try:
+            # Fetch data
+            closed_pnl_list = bybit_api.get_closed_pnl()
+            positions = bybit_api.get_positions()
+            
+            # Calculate Realized PnL (Today)
+            realized_pnl = sum(float(item.get('closedPnl', 0)) for item in closed_pnl_list)
+            trade_count = len(closed_pnl_list)
+            
+            # Calculate Unrealized PnL (Current Open)
+            unrealized_pnl = sum(float(pos.get('unrealisedPnl', 0)) for pos in positions)
+            
+            # Total PnL
+            total_daily_pnl = realized_pnl + unrealized_pnl
+            
+            # Formatting
+            r_emoji = "🟢" if realized_pnl >= 0 else "🔴"
+            u_emoji = "🟢" if unrealized_pnl >= 0 else "🔴"
+            t_emoji = "🟢" if total_daily_pnl >= 0 else "🔴"
+            
+            response = f"📊 <b>Today's Profit & Loss</b>\n"
+            response += f"{'='*30}\n\n"
+            
+            response += f"<b>💵 Realized PnL (Today)</b>\n"
+            response += f"{r_emoji} <b>${realized_pnl:,.2f}</b> ({trade_count} trades)\n\n"
+            
+            response += f"<b>🔓 Unrealized PnL (Open)</b>\n"
+            response += f"{u_emoji} <b>${unrealized_pnl:,.2f}</b>\n\n"
+            
+            response += f"{'='*30}\n"
+            response += f"<b>💰 Total PnL: {t_emoji} ${total_daily_pnl:,.2f}</b>\n"
+            
+            keyboard = self.get_navigation_keyboard(exclude='pnl')
+            await message.edit_text(response, parse_mode='HTML', reply_markup=keyboard)
+            
+        except Exception as e:
+            error_msg = f"❌ Error: {str(e)}"
+            keyboard = self.get_navigation_keyboard()
+            await message.edit_text(error_msg, reply_markup=keyboard)
+            logger.error(f"Error calculating PnL: {e}")
+
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle button callbacks."""
         query = update.callback_query
         
         if query.data == 'balance':
             await self.show_balance(update, context)
+        elif query.data == 'pnl':
+            await self.show_daily_pnl(update, context)
         elif query.data == 'list':
             await self.list_positions(update, context)
         elif query.data == 'orders':
             await self.list_orders(update, context)
+        elif query.data == 'trades':
+            await self.show_recent_trades(update, context)
         elif query.data == 'analyze':
             await self.analyze_positions(update, context)
         elif query.data == 'help':
@@ -453,8 +572,10 @@ class TelegramBot:
         application.add_handler(CommandHandler("start", self.start))
         application.add_handler(CommandHandler("help", self.help_command))
         application.add_handler(CommandHandler("balance", self.show_balance))
+        application.add_handler(CommandHandler("pnl", self.show_daily_pnl))
         application.add_handler(CommandHandler("list", self.list_positions))
         application.add_handler(CommandHandler("orders", self.list_orders))
+        application.add_handler(CommandHandler("trades", self.show_recent_trades))
         application.add_handler(CommandHandler("analyze", self.analyze_positions))
         application.add_handler(CallbackQueryHandler(self.button_callback))
         

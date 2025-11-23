@@ -8,6 +8,7 @@ import hashlib
 import time
 import requests
 import urllib.parse
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 from config import Config
 
@@ -267,6 +268,78 @@ def get_conditional_orders(category: str = 'linear', settle_coin: str = 'USDT') 
     
     except Exception as e:
         raise Exception(f"Failed to fetch conditional orders: {str(e)}")
+
+
+def get_recent_trades(category: str = 'linear', limit: int = 100, settle_coin: str = 'USDT') -> List[Dict[str, Any]]:
+    """
+    Fetch recent trade executions (excluding Funding fees).
+    
+    Args:
+        category: Product type ('linear' for USDT perpetuals)
+        limit: Number of trades to fetch (max 100)
+        settle_coin: Settlement coin
+    
+    Returns:
+        List of execution dictionaries
+    """
+    endpoint = '/v5/execution/list'
+    
+    try:
+        params = {
+            'category': category,
+            'limit': limit,
+            'settleCoin': settle_coin
+        }
+        
+        response = signed_request('GET', endpoint, params)
+        result = response.get('result', {})
+        all_executions = result.get('list', [])
+        
+        # Filter out Funding executions to show only actual trades
+        trades = [
+            exc for exc in all_executions 
+            if exc.get('execType') != 'Funding'
+        ]
+        
+        return trades
+        
+    except Exception as e:
+        raise Exception(f"Failed to fetch recent trades: {str(e)}")
+
+
+def get_closed_pnl(category: str = 'linear', limit: int = 50, start_time: int = None) -> List[Dict[str, Any]]:
+    """
+    Fetch closed Profit and Loss (Realized PnL).
+    
+    Args:
+        category: Product type ('linear', 'inverse')
+        limit: Number of records to fetch
+        start_time: Start timestamp in milliseconds (default: Start of today UTC)
+    
+    Returns:
+        List of closed PnL records
+    """
+    endpoint = '/v5/position/closed-pnl'
+    
+    try:
+        # Default to start of day UTC if no start_time provided
+        if start_time is None:
+            now = datetime.now(timezone.utc)
+            start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            start_time = int(start_of_day.timestamp() * 1000)
+            
+        params = {
+            'category': category,
+            'limit': limit,
+            'startTime': start_time
+        }
+        
+        response = signed_request('GET', endpoint, params)
+        result = response.get('result', {})
+        return result.get('list', [])
+        
+    except Exception as e:
+        raise Exception(f"Failed to fetch closed PnL: {str(e)}")
 
 
 def get_wallet_balance(account_type: str = 'UNIFIED', coin: str = 'USDT') -> Dict[str, Any]:
