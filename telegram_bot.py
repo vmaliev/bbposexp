@@ -458,6 +458,18 @@ class TelegramBot:
             # Fetch today's trades
             trades = bybit_api.get_todays_trades()
             
+            # Fetch closed PnL to match with trades
+            try:
+                closed_pnl_list = bybit_api.get_closed_pnl()
+                # Create a map of orderId -> closedPnl
+                pnl_map = {item.get('orderId'): float(item.get('closedPnl', 0)) for item in closed_pnl_list}
+            except Exception as e:
+                logger.error(f"Error fetching closed PnL for trades: {e}")
+                pnl_map = {}
+
+            # Sort trades by execution time (oldest first, so recent is last in output)
+            trades.sort(key=lambda x: x.get('execTime', 0))
+            
             if not trades:
                 keyboard = self.get_navigation_keyboard(exclude='trades')
                 await message.edit_text("ℹ️ No trades found for today.", reply_markup=keyboard)
@@ -474,6 +486,10 @@ class TelegramBot:
                 price = float(trade.get('execPrice', 0))
                 qty = float(trade.get('execQty', 0))
                 time_ms = int(trade.get('execTime', 0))
+                order_id = trade.get('orderId')
+                
+                # Look up PnL
+                pnl = pnl_map.get(order_id)
                 
                 # Format time (simple HH:MM:SS)
                 import datetime
@@ -484,7 +500,13 @@ class TelegramBot:
                 
                 response += f"{side_emoji} <b>{symbol}</b> ({side})\n"
                 response += f"  Price: ${price:.4f} | Qty: {qty}\n"
-                response += f"  Time: {time_str}\n\n"
+                response += f"  Time: {time_str}\n"
+                
+                if pnl is not None:
+                    pnl_emoji = "🟢" if pnl >= 0 else "🔴"
+                    response += f"  {pnl_emoji} PnL: <b>${pnl:.2f}</b>\n"
+                
+                response += "\n"
                 
             if len(trades) > display_count:
                 response += f"<i>Showing last {display_count} of {len(trades)} trades today</i>"

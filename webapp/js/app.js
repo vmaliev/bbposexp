@@ -223,6 +223,20 @@ function renderTrades() {
         const sideClass = trade.side === 'Buy' ? 'side-buy' : 'side-sell';
         const time = new Date(parseInt(trade.execTime)).toLocaleString();
         const fee = parseFloat(trade.execFee).toFixed(4);
+        
+        // PnL display logic
+        let pnlHtml = '';
+        if (trade.closedPnl !== undefined) {
+            const pnl = parseFloat(trade.closedPnl);
+            const pnlClass = pnl >= 0 ? 'positive' : 'negative';
+            const sign = pnl >= 0 ? '+' : '';
+            pnlHtml = `
+                <div class="card-row">
+                    <span class="label">PnL</span>
+                    <span class="pnl ${pnlClass}">${sign}$${Math.abs(pnl).toFixed(2)}</span>
+                </div>
+            `;
+        }
 
         return `
             <div class="card">
@@ -245,6 +259,7 @@ function renderTrades() {
                     <span class="label">Fee</span>
                     <span>${fee}</span>
                 </div>
+                ${pnlHtml}
             </div>
         `;
     }).join('');

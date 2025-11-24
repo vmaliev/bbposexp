@@ -63,6 +63,24 @@ async def get_data():
 async def get_trades():
     try:
         trades = bybit_api.get_todays_trades()
+        
+        # Fetch closed PnL to match with trades
+        try:
+            closed_pnl_list = bybit_api.get_closed_pnl()
+            # Create a map of orderId -> closedPnl
+            pnl_map = {item.get('orderId'): float(item.get('closedPnl', 0)) for item in closed_pnl_list}
+            
+            # Merge PnL into trades
+            for trade in trades:
+                order_id = trade.get('orderId')
+                if order_id in pnl_map:
+                    trade['closedPnl'] = pnl_map[order_id]
+                    
+        except Exception as e:
+            print(f"Error fetching closed PnL for trades API: {e}")
+            # Continue without PnL if this fails
+            pass
+            
         return trades
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
