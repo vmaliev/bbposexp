@@ -9,7 +9,7 @@ fi
 
 # Start the web server in the background
 echo "Starting web server..."
-./venv/bin/uvicorn server:app --host 0.0.0.0 --port 8000 &
+./venv/bin/uvicorn server:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 60 &
 SERVER_PID=$!
 
 # Start the Telegram bot in the foreground
