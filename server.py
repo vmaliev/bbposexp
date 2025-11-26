@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
+from datetime import datetime, timezone
 import bybit_api
 import analyzer
 import ai_analysis
@@ -27,7 +28,13 @@ async def get_data():
         balance = bybit_api.get_wallet_balance()
         positions = bybit_api.get_positions()
         orders = bybit_api.get_open_orders()
-        closed_pnl_list = bybit_api.get_closed_pnl()
+        
+        # Calculate start of day for daily PnL
+        now = datetime.now(timezone.utc)
+        start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_time = int(start_of_day.timestamp() * 1000)
+        
+        closed_pnl_list = bybit_api.get_closed_pnl(start_time=start_time)
         
         # Calculate PnL metrics
         realized_pnl = sum(float(item.get('closedPnl', 0)) for item in closed_pnl_list)
@@ -62,24 +69,23 @@ async def get_data():
 @app.get("/api/trades")
 async def get_trades():
     try:
-        trades = bybit_api.get_todays_trades()
+        # Fetch closed PnL records
+        # The user wants to see PnL, so we prioritize the closed PnL endpoint which guarantees this data
+        closed_pnl_list = bybit_api.get_closed_pnl(limit=50)
         
-        # Fetch closed PnL to match with trades
-        try:
-            closed_pnl_list = bybit_api.get_closed_pnl()
-            # Create a map of orderId -> closedPnl
-            pnl_map = {item.get('orderId'): float(item.get('closedPnl', 0)) for item in closed_pnl_list}
-            
-            # Merge PnL into trades
-            for trade in trades:
-                order_id = trade.get('orderId')
-                if order_id in pnl_map:
-                    trade['closedPnl'] = pnl_map[order_id]
-                    
-        except Exception as e:
-            print(f"Error fetching closed PnL for trades API: {e}")
-            # Continue without PnL if this fails
-            pass
+        trades = []
+        for item in closed_pnl_list:
+            # Map closed PnL fields to the structure expected by the frontend
+            trades.append({
+                "symbol": item.get("symbol"),
+                "side": item.get("side"),
+                "execTime": item.get("updatedTime"), 
+                "execPrice": float(item.get("avgExitPrice", 0)),
+                "execQty": float(item.get("qty", 0)),
+                "execFee": float(item.get("execFee", 0)),  # Try to get fee if available
+                "closedPnl": float(item.get("closedPnl", 0)) if item.get("closedPnl") is not None else None,
+                "orderId": item.get("orderId")
+            })
             
         return trades
     except Exception as e:

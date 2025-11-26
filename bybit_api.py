@@ -381,17 +381,14 @@ def get_closed_pnl(category: str = 'linear', limit: int = 50, start_time: int = 
     endpoint = '/v5/position/closed-pnl'
     
     try:
-        # Default to start of day UTC if no start_time provided
-        if start_time is None:
-            now = datetime.now(timezone.utc)
-            start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            start_time = int(start_of_day.timestamp() * 1000)
-            
         params = {
             'category': category,
-            'limit': limit,
-            'startTime': start_time
+            'limit': limit
         }
+        
+        # Only add startTime if explicitly provided
+        if start_time is not None:
+            params['startTime'] = start_time
         
         response = signed_request('GET', endpoint, params)
         result = response.get('result', {})

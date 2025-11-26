@@ -6,6 +6,7 @@ Provides a Telegram interface to interact with the Bybit analysis bot.
 
 import asyncio
 import logging
+import html
 from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -229,17 +230,20 @@ class TelegramBot:
                 await message.edit_text("ℹ️ No open positions found.")
                 return
             
-            # Format positions
-            response = f"📋 <b>Bybit Positions List</b>\n"
-            response += f"{'='*50}\n\n"
-            response += f"✅ Found {len(positions)} open position(s)\n\n"
+            
+            header = f"📋 <b>Bybit Positions List</b>\n"
+            header += f"{'='*50}\n\n"
+            header += f"✅ Found {len(positions)} open position(s)\n\n"
             
             total_value = 0
             total_pnl = 0
             
+            current_message = header
+            is_first_message = True
+            
             for pos in positions:
-                symbol = pos.get('symbol', 'N/A')
-                side = pos.get('side', 'N/A')
+                symbol = html.escape(str(pos.get('symbol', 'N/A')))
+                side = html.escape(str(pos.get('side', 'N/A')))
                 size = float(pos.get('size', 0))
                 entry_price = float(pos.get('avgPrice', 0))
                 mark_price = float(pos.get('markPrice', 0))
@@ -253,40 +257,55 @@ class TelegramBot:
                 pnl_emoji = "🟢" if unrealized_pnl >= 0 else "🔴"
                 side_emoji = "📈" if side == "Buy" else "📉"
                 
-                response += f"{side_emoji} <b>{symbol}</b> ({side})\n"
-                response += f"  Size: {size:.4f} | Entry: ${entry_price:.4f}\n"
-                response += f"  Mark: ${mark_price:.4f} | Lev: {leverage}x\n"
-                response += f"  {pnl_emoji} PnL: ${unrealized_pnl:.2f}\n\n"
+                pos_str = f"{side_emoji} <b>{symbol}</b> ({side})\n"
+                pos_str += f"  Size: {size:.4f} | Entry: ${entry_price:.4f}\n"
+                pos_str += f"  Mark: ${mark_price:.4f} | Lev: {leverage}x\n"
+                pos_str += f"  {pnl_emoji} PnL: ${unrealized_pnl:.2f}\n\n"
+                
+                if len(current_message) + len(pos_str) > 4000:
+                    if is_first_message:
+                        await message.edit_text(current_message, parse_mode='HTML')
+                        is_first_message = False
+                    else:
+                        await update.effective_chat.send_message(current_message, parse_mode='HTML')
+                    current_message = pos_str
+                else:
+                    current_message += pos_str
             
             
-            response += f"{'='*50}\n"
-            response += f"💰 Total Value: ${total_value:.2f} USDT\n"
-            response += f"💰 Total PnL: ${total_pnl:.2f} USDT\n\n"
+            footer = f"{'='*50}\n"
+            footer += f"💰 Total Value: ${total_value:.2f} USDT\n"
+            footer += f"💰 Total PnL: ${total_pnl:.2f} USDT\n\n"
             
             # Add balance info
             try:
                 balance = bybit_api.get_wallet_balance()
                 available = float(balance.get('totalAvailableBalance', 0))
                 equity = float(balance.get('totalEquity', 0))
-                response += f"<b>Account Balance:</b>\n"
-                response += f"Available: ${available:,.2f} USDT\n"
-                response += f"Total Equity: ${equity:,.2f} USDT\n"
+                footer += f"<b>Account Balance:</b>\n"
+                footer += f"Available: ${available:,.2f} USDT\n"
+                footer += f"Total Equity: ${equity:,.2f} USDT\n"
             except:
                 pass  # Silently fail if balance fetch fails
+            
+            if len(current_message) + len(footer) > 4000:
+                if is_first_message:
+                    await message.edit_text(current_message, parse_mode='HTML')
+                    is_first_message = False
+                else:
+                    await update.effective_chat.send_message(current_message, parse_mode='HTML')
+                current_message = footer
+            else:
+                current_message += footer
             
             
             # Add navigation buttons
             keyboard = self.get_navigation_keyboard(exclude='list')
             
-            # Split message if too long
-            if len(response) > 4096:
-                for i in range(0, len(response), 4096):
-                    if i == 0:
-                        await message.edit_text(response[i:i+4096], parse_mode='HTML', reply_markup=keyboard)
-                    else:
-                        await update.effective_chat.send_message(response[i:i+4096], parse_mode='HTML')
+            if is_first_message:
+                await message.edit_text(current_message, parse_mode='HTML', reply_markup=keyboard)
             else:
-                await message.edit_text(response, parse_mode='HTML', reply_markup=keyboard)
+                await update.effective_chat.send_message(current_message, parse_mode='HTML', reply_markup=keyboard)
                 
         except Exception as e:
             error_msg = f"❌ Error: {str(e)}"
@@ -309,39 +328,52 @@ class TelegramBot:
                 await message.edit_text("ℹ️ No open orders found.")
                 return
             
-            response = f"📋 <b>Bybit Open Orders</b>\n"
-            response += f"{'='*50}\n\n"
-            response += f"✅ Found {len(orders)} open order(s)\n\n"
+            header = f"📋 <b>Bybit Open Orders</b>\n"
+            header += f"{'='*50}\n\n"
+            header += f"✅ Found {len(orders)} open order(s)\n\n"
+            
+            
+            current_message = header
+            is_first_message = True
             
             for order in orders:
-                symbol = order.get('symbol', 'N/A')
-                side = order.get('side', 'N/A')
-                order_type = order.get('orderType', 'N/A')
+                symbol = html.escape(str(order.get('symbol', 'N/A')))
+                side = html.escape(str(order.get('side', 'N/A')))
+                order_type = html.escape(str(order.get('orderType', 'N/A')))
                 price = float(order.get('price', 0))
                 qty = float(order.get('qty', 0))
-                order_id = order.get('orderId', 'N/A')
+                order_id = html.escape(str(order.get('orderId', 'N/A')))
                 
                 side_emoji = "📈" if side == "Buy" else "📉"
                 
-                response += f"{side_emoji} <b>{symbol}</b> ({side})\n"
-                response += f"  Type: {order_type}\n"
-                response += f"  Price: ${price:.4f} | Qty: {qty:.4f}\n"
-                response += f"  Order ID: <code>{order_id}</code>\n\n"
-            
-            if len(response) > 4096:
-                for i in range(0, len(response), 4096):
-                    if i == 0:
-                        await message.edit_text(response[i:i+4096], parse_mode='HTML')
+                order_str = f"{side_emoji} <b>{symbol}</b> ({side})\n"
+                order_str += f"  Type: {order_type}\n"
+                order_str += f"  Price: ${price:.4f} | Qty: {qty:.4f}\n"
+                order_str += f"  Order ID: {order_id}\n\n"
+                
+                if len(current_message) + len(order_str) > 4000:
+                    if is_first_message:
+                        await message.edit_text(current_message, parse_mode='HTML')
+                        is_first_message = False
                     else:
-                        await update.effective_chat.send_message(response[i:i+4096], parse_mode='HTML')
+                        await update.effective_chat.send_message(current_message, parse_mode='HTML')
+                    current_message = order_str
+                else:
+                    current_message += order_str
+            
+            keyboard = self.get_navigation_keyboard(exclude='orders')
+            if is_first_message:
+                await message.edit_text(current_message, parse_mode='HTML', reply_markup=keyboard)
             else:
-                keyboard = self.get_navigation_keyboard(exclude='orders')
-                await message.edit_text(response, parse_mode='HTML', reply_markup=keyboard)
+                await update.effective_chat.send_message(current_message, parse_mode='HTML', reply_markup=keyboard)
                 
         except Exception as e:
             error_msg = f"❌ Error: {str(e)}"
             keyboard = self.get_navigation_keyboard()
-            await message.edit_text(error_msg, reply_markup=keyboard)
+            try:
+                await message.edit_text(error_msg, reply_markup=keyboard)
+            except:
+                await update.effective_chat.send_message(error_msg, reply_markup=keyboard)
             logger.error(f"Error fetching orders: {e}")
     
     async def analyze_positions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -416,13 +448,13 @@ class TelegramBot:
                 if suggestions.get('urgent'):
                     response += f"🔴 <b>URGENT:</b>\n"
                     for sug in suggestions['urgent'][:3]:
-                        response += f"• {sug}\n"
+                        response += f"• {html.escape(sug)}\n"
                     response += "\n"
                 
                 if suggestions.get('recommended'):
                     response += f"🟡 <b>RECOMMENDED:</b>\n"
                     for sug in suggestions['recommended'][:3]:
-                        response += f"• {sug}\n"
+                        response += f"• {html.escape(sug)}\n"
                     response += "\n"
             
             # Split message if too long
@@ -450,68 +482,57 @@ class TelegramBot:
         """Show recent trade history."""
         if update.callback_query:
             await update.callback_query.answer()
-            message = await update.callback_query.edit_message_text("📡 Fetching today's trades...")
+            message = await update.callback_query.edit_message_text("📡 Fetching recent trades...")
         else:
-            message = await update.message.reply_text("📡 Fetching today's trades...")
+            message = await update.message.reply_text("📡 Fetching recent trades...")
             
         try:
-            # Fetch today's trades
-            trades = bybit_api.get_todays_trades()
+            # Fetch recent closed PnL records (acts as trade history)
+            # This is more reliable for showing PnL than the execution endpoint
+            trades = bybit_api.get_closed_pnl(limit=50)
             
-            # Fetch closed PnL to match with trades
-            try:
-                closed_pnl_list = bybit_api.get_closed_pnl()
-                # Create a map of orderId -> closedPnl
-                pnl_map = {item.get('orderId'): float(item.get('closedPnl', 0)) for item in closed_pnl_list}
-            except Exception as e:
-                logger.error(f"Error fetching closed PnL for trades: {e}")
-                pnl_map = {}
-
-            # Sort trades by execution time (oldest first, so recent is last in output)
-            trades.sort(key=lambda x: x.get('execTime', 0))
+            # Sort trades by update time (newest first) to get the most recent ones
+            trades.sort(key=lambda x: int(x.get('updatedTime', 0)), reverse=True)
             
             if not trades:
                 keyboard = self.get_navigation_keyboard(exclude='trades')
-                await message.edit_text("ℹ️ No trades found for today.", reply_markup=keyboard)
+                await message.edit_text("ℹ️ No recent trades found.", reply_markup=keyboard)
                 return
                 
-            response = f"📈 <b>Today's Trades</b>\n"
+            response = f"📈 <b>Recent Trades</b>\n"
             response += f"{'='*30}\n\n"
             
             display_count = min(len(trades), 20)
+            trades_to_show = trades[:display_count]
             
-            for trade in trades[:display_count]:  # Show top 20
-                symbol = trade.get('symbol', 'N/A')
-                side = trade.get('side', 'N/A')
-                price = float(trade.get('execPrice', 0))
-                qty = float(trade.get('execQty', 0))
-                time_ms = int(trade.get('execTime', 0))
-                order_id = trade.get('orderId')
+            # Sort ascending (oldest to newest) so newest is at the bottom
+            trades_to_show.sort(key=lambda x: int(x.get('updatedTime', 0)))
+            
+            for trade in trades_to_show:  # Show top 20 sorted chronologically
+                symbol = html.escape(str(trade.get('symbol', 'N/A')))
+                side = html.escape(str(trade.get('side', 'N/A')))
+                price = float(trade.get('avgExitPrice', 0))
+                qty = float(trade.get('qty', 0))
+                time_ms = int(trade.get('updatedTime', 0))
+                pnl = float(trade.get('closedPnl', 0))
                 
-                # Look up PnL
-                pnl = pnl_map.get(order_id)
-                
-                # Format time (simple HH:MM:SS)
+                # Format time (simple MM-DD HH:MM:SS)
                 import datetime
                 dt = datetime.datetime.fromtimestamp(time_ms / 1000)
-                time_str = dt.strftime('%H:%M:%S')
+                time_str = dt.strftime('%m-%d %H:%M:%S')
                 
                 side_emoji = "🟢" if side == "Buy" else "🔴"
+                pnl_emoji = "🟢" if pnl >= 0 else "🔴"
                 
                 response += f"{side_emoji} <b>{symbol}</b> ({side})\n"
                 response += f"  Price: ${price:.4f} | Qty: {qty}\n"
                 response += f"  Time: {time_str}\n"
-                
-                if pnl is not None:
-                    pnl_emoji = "🟢" if pnl >= 0 else "🔴"
-                    response += f"  {pnl_emoji} PnL: <b>${pnl:.2f}</b>\n"
-                
-                response += "\n"
+                response += f"  {pnl_emoji} PnL: <b>${pnl:.2f}</b>\n\n"
                 
             if len(trades) > display_count:
-                response += f"<i>Showing last {display_count} of {len(trades)} trades today</i>"
+                response += f"<i>Showing last {display_count} of {len(trades)} recent trades</i>"
             else:
-                response += f"<i>Total {len(trades)} trades today</i>"
+                response += f"<i>Total {len(trades)} recent trades fetched</i>"
             
             keyboard = self.get_navigation_keyboard(exclude='trades')
             await message.edit_text(response, parse_mode='HTML', reply_markup=keyboard)
@@ -531,8 +552,14 @@ class TelegramBot:
             message = await update.message.reply_text("💰 Calculating today's PnL...")
             
         try:
+            # Calculate start of day for daily PnL
+            import datetime
+            now = datetime.datetime.now(datetime.timezone.utc)
+            start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            start_time = int(start_of_day.timestamp() * 1000)
+
             # Fetch data
-            closed_pnl_list = bybit_api.get_closed_pnl()
+            closed_pnl_list = bybit_api.get_closed_pnl(start_time=start_time)
             positions = bybit_api.get_positions()
             
             # Calculate Realized PnL (Today)

@@ -226,7 +226,7 @@ function renderTrades() {
         
         // PnL display logic
         let pnlHtml = '';
-        if (trade.closedPnl !== undefined) {
+        if (trade.closedPnl !== null && trade.closedPnl !== undefined) {
             const pnl = parseFloat(trade.closedPnl);
             const pnlClass = pnl >= 0 ? 'positive' : 'negative';
             const sign = pnl >= 0 ? '+' : '';

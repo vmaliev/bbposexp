@@ -4,6 +4,7 @@ Provides intelligent insights using OpenAI or rule-based fallback.
 """
 
 import json
+import html
 from typing import Dict, Any, List
 from config import Config
 
@@ -458,7 +459,7 @@ def _fallback_analysis(analysis_data: Dict[str, Any]) -> Dict[str, List[str]]:
     ]
     for pos in close_liq_positions:
         urgent.append(
-            f"Add collateral or reduce {pos['symbol']} {pos['side'].upper()} position "
+            f"Add collateral or reduce {html.escape(pos['symbol'])} {html.escape(pos['side'].upper())} position "
             f"({pos['liquidation_distance_pct']:.2f}% from liquidation)"
         )
     
@@ -466,7 +467,7 @@ def _fallback_analysis(analysis_data: Dict[str, Any]) -> Dict[str, List[str]]:
     risky_positions = risks.get('risky_positions', [])
     if risky_positions:
         for pos in risky_positions[:3]:
-             urgent.append(f"⚠️ CRITICAL: Set SL for {pos['symbol']} {pos['side'].upper()} (Unhedged & No SL)")
+             urgent.append(f"⚠️ CRITICAL: Set SL for {html.escape(pos['symbol'])} {html.escape(pos['side'].upper())} (Unhedged & No SL)")
         if len(risky_positions) > 3:
              urgent.append(f"And {len(risky_positions) - 3} other unhedged positions without Stop Loss.")
 
@@ -482,7 +483,7 @@ def _fallback_analysis(analysis_data: Dict[str, Any]) -> Dict[str, List[str]]:
     ]
     for pos in high_lev_positions[:2]:  # Top 2
         urgent.append(
-            f"Reduce leverage on {pos['symbol']} (currently {pos['leverage']:.1f}x)"
+            f"Reduce leverage on {html.escape(pos['symbol'])} (currently {pos['leverage']:.1f}x)"
         )
     
     # RECOMMENDED: Cluster concentration
@@ -490,7 +491,7 @@ def _fallback_analysis(analysis_data: Dict[str, Any]) -> Dict[str, List[str]]:
         max_cluster = max(portfolio['clusters'].items(), key=lambda x: x[1])
         if max_cluster[1] > 40:
             recommended.append(
-                f"Diversify away from {max_cluster[0]} cluster ({max_cluster[1]:.1f}% of portfolio)"
+                f"Diversify away from {html.escape(max_cluster[0])} cluster ({max_cluster[1]:.1f}% of portfolio)"
             )
     
     # RECOMMENDED: Take profits
@@ -513,7 +514,9 @@ def _fallback_analysis(analysis_data: Dict[str, Any]) -> Dict[str, List[str]]:
     # RECOMMENDED: Hedged positions
     hedged_symbols = risks.get('hedged_symbols', [])
     if hedged_symbols:
-        recommended.append(f"Review hedged positions for: {', '.join(hedged_symbols)}")
+        # Escape each symbol before joining
+        escaped_hedged_symbols = [html.escape(s) for s in hedged_symbols]
+        recommended.append(f"Review hedged positions for: {', '.join(escaped_hedged_symbols)}")
         
     # RECOMMENDED: Orders check
     if len(orders) > 10:
