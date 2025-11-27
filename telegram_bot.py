@@ -230,6 +230,13 @@ class TelegramBot:
                 await message.edit_text("ℹ️ No open positions found.")
                 return
             
+            # Fetch Tickers for Funding Rates
+            try:
+                tickers = bybit_api.get_tickers(category='linear')
+                tickers_map = {t['symbol']: t for t in tickers}
+            except Exception as e:
+                logger.warning(f"Failed to fetch tickers: {e}")
+                tickers_map = {}
             
             header = f"📋 <b>Bybit Positions List</b>\n"
             header += f"{'='*50}\n\n"
@@ -254,13 +261,69 @@ class TelegramBot:
                 total_value += position_value
                 total_pnl += unrealized_pnl
                 
+                # Default funding info
+                pos['fundingRate'] = 0.0
+                pos['estFundingFee'] = 0.0
+                pos['fundingInfoStr'] = ""
+                
+                if symbol in tickers_map:
+                    ticker = tickers_map[symbol]
+                    funding_rate = float(ticker.get('fundingRate', 0))
+                    est_fee = position_value * funding_rate
+                    
+                    # Store for sorting and display
+                    pos['fundingRate'] = funding_rate
+                    pos['estFundingFee'] = est_fee
+                    
+                    # Determine Pay/Receive
+                    is_long = (side == 'Buy')
+                    is_pay = (is_long and funding_rate > 0) or (not is_long and funding_rate < 0)
+                    
+                    action_str = "🔴 Pay" if is_pay else "🟢 Receive"
+                    rate_pct = funding_rate * 100
+                    
+                    # Get next funding time and format it
+                    next_funding_time_ms = int(ticker.get('nextFundingTime', 0))
+                    funding_time_str = "N/A"
+                    funding_countdown_str = ""
+                    if next_funding_time_ms > 0:
+                        import datetime
+                        # Convert milliseconds to seconds, then to datetime object in UTC
+                        dt_object = datetime.datetime.fromtimestamp(next_funding_time_ms / 1000, tz=datetime.timezone.utc)
+                        funding_time_str = dt_object.strftime('%H:%M UTC') # Format as HH:MM UTC
+                        
+                        # Calculate countdown
+                        now_utc = datetime.datetime.now(datetime.timezone.utc)
+                        time_until_funding = dt_object - now_utc
+                        
+                        if time_until_funding.total_seconds() > 0:
+                            hours, remainder = divmod(int(time_until_funding.total_seconds()), 3600)
+                            minutes, seconds = divmod(remainder, 60)
+                            funding_countdown_str = f" ({hours:02d}h {minutes:02d}m)"
+                        
+                    pos['fundingInfoStr'] = f"  Funding: {rate_pct:.4f}% | {action_str} ${abs(est_fee):.4f}{funding_countdown_str}\n"
+                
+            # Sort positions by absolute funding rate (lowest rate first)
+            positions.sort(key=lambda p: abs(p.get('fundingRate', 0.0)), reverse=False)
+            
+            for pos in positions:
+                symbol = html.escape(str(pos.get('symbol', 'N/A')))
+                side = html.escape(str(pos.get('side', 'N/A')))
+                size = float(pos.get('size', 0))
+                entry_price = float(pos.get('avgPrice', 0))
+                mark_price = float(pos.get('markPrice', 0))
+                leverage = float(pos.get('leverage', 0))
+                unrealized_pnl = float(pos.get('unrealisedPnl', 0))
+                
                 pnl_emoji = "🟢" if unrealized_pnl >= 0 else "🔴"
                 side_emoji = "📈" if side == "Buy" else "📉"
                 
                 pos_str = f"{side_emoji} <b>{symbol}</b> ({side})\n"
                 pos_str += f"  Size: {size:.4f} | Entry: ${entry_price:.4f}\n"
                 pos_str += f"  Mark: ${mark_price:.4f} | Lev: {leverage}x\n"
-                pos_str += f"  {pnl_emoji} PnL: ${unrealized_pnl:.2f}\n\n"
+                pos_str += f"  {pnl_emoji} PnL: ${unrealized_pnl:.2f}\n"
+                pos_str += pos['fundingInfoStr']
+                pos_str += "\n"
                 
                 if len(current_message) + len(pos_str) > 4000:
                     if is_first_message:
@@ -479,7 +542,7 @@ class TelegramBot:
             logger.error(f"Error analyzing positions: {e}")
 
     async def show_recent_trades(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Show recent trade history."""
+        """Show recent trade history (last 24h)."""
         if update.callback_query:
             await update.callback_query.answer()
             message = await update.callback_query.edit_message_text("📡 Fetching recent trades...")
@@ -487,38 +550,61 @@ class TelegramBot:
             message = await update.message.reply_text("📡 Fetching recent trades...")
             
         try:
-            # Fetch recent closed PnL records (acts as trade history)
-            # This is more reliable for showing PnL than the execution endpoint
-            trades = bybit_api.get_closed_pnl(limit=50)
+            # Calculate start time (24 hours ago)
+            import datetime
+            now_utc = datetime.datetime.now(datetime.timezone.utc)
+            start_time_dt = now_utc - datetime.timedelta(hours=24)
+            start_time_ms = int(start_time_dt.timestamp() * 1000)
+            
+            logger.info(f"Fetching trades for last 24h. Start time: {start_time_ms} ({start_time_dt})")
+
+            # Fetch recent closed PnL records
+            # We fetch a bit more than usual to ensure we cover the 24h window if there are many trades
+            trades = bybit_api.get_closed_pnl(start_time=start_time_ms, limit=50)
+            logger.info(f"Fetched {len(trades)} trades from API")
+            
+            # Filter trades to ensure they are within last 24h
+            filtered_trades = []
+            for t in trades:
+                try:
+                    updated_time = float(t.get('updatedTime', 0))
+                    if updated_time >= start_time_ms:
+                        filtered_trades.append(t)
+                    else:
+                        logger.info(f"Filtering out trade: {t.get('symbol')} time={updated_time} < {start_time_ms}")
+                except (ValueError, TypeError):
+                    logger.warning(f"Invalid updatedTime for trade: {t}")
+            
+            trades = filtered_trades
+            logger.info(f"Trades after filtering: {len(trades)}")
             
             # Sort trades by update time (newest first) to get the most recent ones
-            trades.sort(key=lambda x: int(x.get('updatedTime', 0)), reverse=True)
+            trades.sort(key=lambda x: float(x.get('updatedTime', 0)), reverse=True)
             
             if not trades:
                 keyboard = self.get_navigation_keyboard(exclude='trades')
-                await message.edit_text("ℹ️ No recent trades found.", reply_markup=keyboard)
+                await message.edit_text("ℹ️ No recent trades found in the last 24h.", reply_markup=keyboard)
                 return
                 
-            response = f"📈 <b>Recent Trades</b>\n"
+            response = f"📈 <b>Last 24h Trades</b>\n"
             response += f"{'='*30}\n\n"
             
             display_count = min(len(trades), 20)
             trades_to_show = trades[:display_count]
             
             # Sort ascending (oldest to newest) so newest is at the bottom
-            trades_to_show.sort(key=lambda x: int(x.get('updatedTime', 0)))
+            trades_to_show.sort(key=lambda x: float(x.get('updatedTime', 0)))
             
             for trade in trades_to_show:  # Show top 20 sorted chronologically
                 symbol = html.escape(str(trade.get('symbol', 'N/A')))
                 side = html.escape(str(trade.get('side', 'N/A')))
                 price = float(trade.get('avgExitPrice', 0))
                 qty = float(trade.get('qty', 0))
-                time_ms = int(trade.get('updatedTime', 0))
+                time_ms = float(trade.get('updatedTime', 0))
                 pnl = float(trade.get('closedPnl', 0))
                 
                 # Format time (simple MM-DD HH:MM:SS)
-                import datetime
-                dt = datetime.datetime.fromtimestamp(time_ms / 1000)
+                dt = datetime.datetime.fromtimestamp(time_ms / 1000, tz=datetime.timezone.utc)
                 time_str = dt.strftime('%m-%d %H:%M:%S')
                 
                 side_emoji = "🟢" if side == "Buy" else "🔴"
@@ -526,22 +612,23 @@ class TelegramBot:
                 
                 response += f"{side_emoji} <b>{symbol}</b> ({side})\n"
                 response += f"  Price: ${price:.4f} | Qty: {qty}\n"
-                response += f"  Time: {time_str}\n"
+                response += f"  Time: {time_str} (UTC)\n"
                 response += f"  {pnl_emoji} PnL: <b>${pnl:.2f}</b>\n\n"
                 
             if len(trades) > display_count:
-                response += f"<i>Showing last {display_count} of {len(trades)} recent trades</i>"
+                response += f"<i>Showing last {display_count} of {len(trades)} trades for last 24h</i>"
             else:
-                response += f"<i>Total {len(trades)} recent trades fetched</i>"
+                response += f"<i>Total {len(trades)} trades fetched for last 24h</i>"
             
             keyboard = self.get_navigation_keyboard(exclude='trades')
             await message.edit_text(response, parse_mode='HTML', reply_markup=keyboard)
             
         except Exception as e:
+            logger.error(f"Error in show_recent_trades: {e}", exc_info=True)
             error_msg = f"❌ Error: {str(e)}"
             keyboard = self.get_navigation_keyboard()
             await message.edit_text(error_msg, reply_markup=keyboard)
-            logger.error(f"Error fetching trades: {e}")
+
 
     async def show_daily_pnl(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Show Profit & Loss for the last 24 hours."""

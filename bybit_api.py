@@ -113,6 +113,34 @@ def signed_request(
         raise Exception(f"API request failed: {str(e)}")
 
 
+def get_tickers(category: str = 'linear', symbol: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    Fetch market tickers (price, funding rate, etc).
+    
+    Args:
+        category: Product type ('linear', 'inverse', etc.)
+        symbol: Optional symbol to filter
+        
+    Returns:
+        List of ticker dictionaries
+    """
+    endpoint = '/v5/market/tickers'
+    
+    try:
+        params = {
+            'category': category
+        }
+        if symbol:
+            params['symbol'] = symbol
+            
+        response = signed_request('GET', endpoint, params)
+        result = response.get('result', {})
+        return result.get('list', [])
+        
+    except Exception as e:
+        raise Exception(f"Failed to fetch tickers: {str(e)}")
+
+
 def get_positions(category: str = 'linear', settle_coin: str = 'USDT') -> List[Dict[str, Any]]:
     """
     Fetch all open positions from Bybit with pagination support.
