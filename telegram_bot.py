@@ -544,25 +544,25 @@ class TelegramBot:
             logger.error(f"Error fetching trades: {e}")
 
     async def show_daily_pnl(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Show today's Profit & Loss (Realized + Unrealized)."""
+        """Show Profit & Loss for the last 24 hours."""
         if update.callback_query:
             await update.callback_query.answer()
-            message = await update.callback_query.edit_message_text("💰 Calculating today's PnL...")
+            message = await update.callback_query.edit_message_text("💰 Calculating 24h PnL...")
         else:
-            message = await update.message.reply_text("💰 Calculating today's PnL...")
+            message = await update.message.reply_text("💰 Calculating 24h PnL...")
             
         try:
-            # Calculate start of day for daily PnL
+            # Calculate start time (24 hours ago)
             import datetime
             now = datetime.datetime.now(datetime.timezone.utc)
-            start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            start_time = int(start_of_day.timestamp() * 1000)
+            start_time_dt = now - datetime.timedelta(hours=24)
+            start_time = int(start_time_dt.timestamp() * 1000)
 
             # Fetch data
             closed_pnl_list = bybit_api.get_closed_pnl(start_time=start_time)
             positions = bybit_api.get_positions()
             
-            # Calculate Realized PnL (Today)
+            # Calculate Realized PnL (24h)
             realized_pnl = sum(float(item.get('closedPnl', 0)) for item in closed_pnl_list)
             trade_count = len(closed_pnl_list)
             
@@ -577,10 +577,10 @@ class TelegramBot:
             u_emoji = "🟢" if unrealized_pnl >= 0 else "🔴"
             t_emoji = "🟢" if total_daily_pnl >= 0 else "🔴"
             
-            response = f"📊 <b>Today's Profit & Loss</b>\n"
+            response = f"📊 <b>Rolling 24h Profit & Loss</b>\n"
             response += f"{'='*30}\n\n"
             
-            response += f"<b>💵 Realized PnL (Today)</b>\n"
+            response += f"<b>💵 Realized PnL (24h)</b>\n"
             response += f"{r_emoji} <b>${realized_pnl:,.2f}</b> ({trade_count} trades)\n\n"
             
             response += f"<b>🔓 Unrealized PnL (Open)</b>\n"
