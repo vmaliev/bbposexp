@@ -7,6 +7,7 @@ Provides a Telegram interface to interact with the Bybit analysis bot.
 import asyncio
 import logging
 import html
+import json
 from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -20,6 +21,7 @@ from config import Config
 import bybit_api
 import analyzer
 import ai_analysis
+from ws_client import BybitWebSocket
 
 # Enable logging
 logging.basicConfig(
@@ -35,7 +37,99 @@ class TelegramBot:
     def __init__(self, token: str):
         """Initialize the bot with a Telegram token."""
         self.token = token
+        self.chat_id = None  # Store the chat ID to send notifications
+        self.ws_client = None
     
+    async def post_init(self, application: Application) -> None:
+        """Post-initialization callback to start WebSocket."""
+        # Start WebSocket client
+        logger.info("Initializing Bybit WebSocket...")
+        self.ws_client = BybitWebSocket(self.handle_ws_order_update)
+        # We need to pass the event loop to the WebSocket client so it can schedule callbacks
+        loop = asyncio.get_running_loop()
+        self.ws_client.start(loop)
+        
+        # Save application reference to send messages later if needed (though we use self.chat_id)
+        self.application = application
+
+    async def handle_ws_order_update(self, message) -> None:
+        """
+        Handle order updates from WebSocket.
+        
+        Args:
+            message: The order update message from Bybit WebSocket
+        """
+        if not self.chat_id:
+            logger.warning("Received order update but no chat_id is set. Start the bot first.")
+            return
+
+        try:
+            # Parse the message
+            data = message.get('data', [])
+            for order in data:
+                symbol = order.get('symbol', 'N/A')
+                side = order.get('side', 'N/A')
+                order_status = order.get('orderStatus', 'N/A')
+                order_type = order.get('orderType', 'N/A')
+                qty = order.get('qty', '0')
+                price = order.get('price', '0')
+                avg_price = order.get('avgPrice', '0')
+                order_id = order.get('orderId')
+                
+                # Only notify on significant status changes
+                if order_status not in ['New', 'PartiallyFilled', 'Filled', 'Cancelled', 'Rejected']:
+                    continue
+
+                emoji = "ℹ️"
+                if order_status == 'Filled':
+                    emoji = "✅"
+                elif order_status == 'Cancelled':
+                    emoji = "❌"
+                elif order_status == 'New':
+                    emoji = "🆕"
+                
+                msg = f"{emoji} <b>Order Update: {order_status}</b>\n"
+                msg += f"<b>{symbol}</b> ({side})\n"
+                msg += f"Type: {order_type}\n"
+                msg += f"Qty: {qty} | Price: ${price}\n"
+                
+                if float(avg_price) > 0:
+                    msg += f"Avg Price: ${avg_price}\n"
+                
+                # If order is filled, try to get PnL
+                if order_status == 'Filled':
+                    try:
+                        # Wait a brief moment for PnL to settle in Bybit backend
+                        await asyncio.sleep(1)
+                        
+                        # Run synchronous API call in executor
+                        loop = asyncio.get_running_loop()
+                        # Fetch recent closed PnL
+                        closed_pnl_list = await loop.run_in_executor(
+                            None, 
+                            lambda: bybit_api.get_closed_pnl(limit=10)
+                        )
+                        
+                        # Find matching PnL for this order
+                        matched_pnl = None
+                        for pnl_record in closed_pnl_list:
+                            if pnl_record.get('orderId') == order_id:
+                                matched_pnl = pnl_record
+                                break
+                        
+                        if matched_pnl:
+                            closed_pnl = float(matched_pnl.get('closedPnl', 0))
+                            pnl_emoji = "🟢" if closed_pnl >= 0 else "🔴"
+                            msg += f"\n{pnl_emoji} <b>Realized PnL: ${closed_pnl:.2f}</b>"
+                            
+                    except Exception as e:
+                        logger.error(f"Error fetching PnL for filled order: {e}")
+
+                await self.application.bot.send_message(chat_id=self.chat_id, text=msg, parse_mode='HTML')
+
+        except Exception as e:
+            logger.error(f"Error processing WebSocket order update: {e}")
+
     def get_navigation_keyboard(self, exclude: str = None) -> InlineKeyboardMarkup:
         """
         Create navigation keyboard with quick action buttons.
@@ -84,6 +178,10 @@ class TelegramBot:
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Send a message when the command /start is issued."""
         user = update.effective_user
+        chat_id = update.effective_chat.id
+        self.chat_id = chat_id # Save chat_id for push notifications
+        logger.info(f"Bot started by user: {user.id}, Chat ID: {chat_id}")
+
         # Web App URL (Updated with ngrok)
         web_app_url = Config.WEB_APP_URL or "https://example.com"
         
@@ -707,7 +805,7 @@ class TelegramBot:
     def run(self):
         """Run the bot."""
         # Create application
-        application = Application.builder().token(self.token).build()
+        application = Application.builder().token(self.token).post_init(self.post_init).build()
         
         # Add handlers
         application.add_handler(CommandHandler("start", self.start))

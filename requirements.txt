@@ -3,3 +3,4 @@ python-dotenv>=1.0.0
 python-telegram-bot>=22.0
 fastapi
 uvicorn
+pybit>=5.8.0

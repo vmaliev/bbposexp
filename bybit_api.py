@@ -10,7 +10,10 @@ import requests
 import urllib.parse
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
-from config import Config
+try:
+    from .config import Config
+except ImportError:
+    from config import Config
 
 
 def generate_signature(params: str, timestamp: str, api_secret: str, recv_window: str) -> str:
