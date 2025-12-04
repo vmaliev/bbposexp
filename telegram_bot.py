@@ -37,8 +37,35 @@ class TelegramBot:
     def __init__(self, token: str):
         """Initialize the bot with a Telegram token."""
         self.token = token
-        self.chat_id = None  # Store the chat ID to send notifications
+        self.chat_id = self._load_chat_id()
         self.ws_client = None
+
+    def _load_chat_id(self) -> Optional[int]:
+        """Load chat_id from file."""
+        try:
+            import os
+            path = os.path.join(os.path.dirname(__file__), 'chat_id.txt')
+            if os.path.exists(path):
+                with open(path, 'r') as f:
+                    cid = int(f.read().strip())
+                    logger.info(f"Loaded chat_id from file: {cid}")
+                    return cid
+            return None
+        except Exception as e:
+            logger.error(f"Error loading chat_id: {e}")
+            return None
+
+    def _save_chat_id(self, chat_id: int) -> None:
+        """Save chat_id to file."""
+        try:
+            import os
+            path = os.path.join(os.path.dirname(__file__), 'chat_id.txt')
+            with open(path, 'w') as f:
+                f.write(str(chat_id))
+            self.chat_id = chat_id
+            logger.info(f"Saved chat_id: {chat_id}")
+        except Exception as e:
+            logger.error(f"Failed to save chat_id: {e}")
     
     async def post_init(self, application: Application) -> None:
         """Post-initialization callback to start WebSocket."""
@@ -59,6 +86,9 @@ class TelegramBot:
         Args:
             message: The order update message from Bybit WebSocket
         """
+        # Log raw message for debugging
+        logger.info(f"WS RAW: {json.dumps(message)}")
+
         if not self.chat_id:
             logger.warning("Received order update but no chat_id is set. Start the bot first.")
             return
@@ -179,7 +209,7 @@ class TelegramBot:
         """Send a message when the command /start is issued."""
         user = update.effective_user
         chat_id = update.effective_chat.id
-        self.chat_id = chat_id # Save chat_id for push notifications
+        self._save_chat_id(chat_id)
         logger.info(f"Bot started by user: {user.id}, Chat ID: {chat_id}")
 
         # Web App URL (Updated with ngrok)
@@ -230,16 +260,16 @@ class TelegramBot:
             "<b>Available Commands:</b>\n\n"
             "/start - Start the bot and show menu\n"
             "/balance - Show account balance and margin\n"
-            "/pnl - Show today's PnL\n"
+            "/pnl - Show today's PnL (Linear + Options)\n"
             "/list - List all open positions\n"
             "/orders - List all open orders (limit, SL, TP)\n"
-            "/trades - Show recent trades\n"
+            "/trades - Show recent trades (Linear + Options)\n"
             "/analyze - Analyze current positions with AI\n"
             "/help - Show this help message\n\n"
             "<b>Features:</b>\n"
             "• Account balance tracking\n"
             "• Real-time position monitoring\n"
-            "• Trade history\n"
+            "• Trade history (Futures & Options)\n"
             "• Daily PnL calculation\n"
             "• Risk analysis and metrics\n"
             "• AI-powered suggestions\n"
@@ -640,12 +670,12 @@ class TelegramBot:
             logger.error(f"Error analyzing positions: {e}")
 
     async def show_recent_trades(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Show recent trade history (last 24h)."""
+        """Show recent trade history (last 24h) using Executions."""
         if update.callback_query:
             await update.callback_query.answer()
-            message = await update.callback_query.edit_message_text("📡 Fetching recent trades...")
+            message = await update.callback_query.edit_message_text("📡 Fetching recent executions (Linear + Options)...")
         else:
-            message = await update.message.reply_text("📡 Fetching recent trades...")
+            message = await update.message.reply_text("📡 Fetching recent executions (Linear + Options)...")
             
         try:
             # Calculate start time (24 hours ago)
@@ -656,28 +686,52 @@ class TelegramBot:
             
             logger.info(f"Fetching trades for last 24h. Start time: {start_time_ms} ({start_time_dt})")
 
-            # Fetch recent closed PnL records
-            # We fetch a bit more than usual to ensure we cover the 24h window if there are many trades
-            trades = bybit_api.get_closed_pnl(start_time=start_time_ms, limit=50)
-            logger.info(f"Fetched {len(trades)} trades from API")
+            # Run API calls concurrently
+            loop = asyncio.get_running_loop()
+            
+            # Fetch Linear executions
+            task_linear = loop.run_in_executor(
+                None, 
+                lambda: bybit_api.get_recent_trades(category='linear', limit=50)
+            )
+            
+            # Fetch Option executions
+            task_option = loop.run_in_executor(
+                None, 
+                lambda: bybit_api.get_recent_trades(category='option', limit=50)
+            )
+            
+            try:
+                linear_trades = await task_linear
+            except Exception as e:
+                logger.error(f"Failed to fetch linear trades: {e}")
+                linear_trades = []
+
+            try:
+                option_trades = await task_option
+            except Exception as e:
+                logger.error(f"Failed to fetch option trades: {e}")
+                option_trades = []
+                
+            # Combine trades
+            all_trades = linear_trades + option_trades
+            logger.info(f"Fetched {len(linear_trades)} linear and {len(option_trades)} option trades")
             
             # Filter trades to ensure they are within last 24h
             filtered_trades = []
-            for t in trades:
+            for t in all_trades:
                 try:
-                    updated_time = float(t.get('updatedTime', 0))
-                    if updated_time >= start_time_ms:
+                    exec_time = float(t.get('execTime', 0))
+                    if exec_time >= start_time_ms:
                         filtered_trades.append(t)
-                    else:
-                        logger.info(f"Filtering out trade: {t.get('symbol')} time={updated_time} < {start_time_ms}")
                 except (ValueError, TypeError):
-                    logger.warning(f"Invalid updatedTime for trade: {t}")
+                    logger.warning(f"Invalid execTime for trade: {t}")
             
             trades = filtered_trades
             logger.info(f"Trades after filtering: {len(trades)}")
             
-            # Sort trades by update time (newest first) to get the most recent ones
-            trades.sort(key=lambda x: float(x.get('updatedTime', 0)), reverse=True)
+            # Sort trades by execution time (newest first)
+            trades.sort(key=lambda x: float(x.get('execTime', 0)), reverse=True)
             
             if not trades:
                 keyboard = self.get_navigation_keyboard(exclude='trades')
@@ -690,33 +744,34 @@ class TelegramBot:
             display_count = min(len(trades), 20)
             trades_to_show = trades[:display_count]
             
-            # Sort ascending (oldest to newest) so newest is at the bottom
-            trades_to_show.sort(key=lambda x: float(x.get('updatedTime', 0)))
+            # Sort ascending (oldest to newest) for display
+            trades_to_show.sort(key=lambda x: float(x.get('execTime', 0)))
             
-            for trade in trades_to_show:  # Show top 20 sorted chronologically
+            for trade in trades_to_show:
                 symbol = html.escape(str(trade.get('symbol', 'N/A')))
                 side = html.escape(str(trade.get('side', 'N/A')))
-                price = float(trade.get('avgExitPrice', 0))
-                qty = float(trade.get('qty', 0))
-                time_ms = float(trade.get('updatedTime', 0))
-                pnl = float(trade.get('closedPnl', 0))
+                price = float(trade.get('execPrice', 0))
+                qty = float(trade.get('execQty', 0))
+                time_ms = float(trade.get('execTime', 0))
                 
-                # Format time (simple MM-DD HH:MM:SS)
+                # Determine type
+                is_option = '-' in symbol and symbol.endswith(('C', 'P'))
+                
+                # Format time
                 dt = datetime.datetime.fromtimestamp(time_ms / 1000, tz=datetime.timezone.utc)
                 time_str = dt.strftime('%m-%d %H:%M:%S')
                 
                 side_emoji = "🟢" if side == "Buy" else "🔴"
-                pnl_emoji = "🟢" if pnl >= 0 else "🔴"
+                type_icon = "🅾️" if is_option else "Lx"
                 
                 response += f"{side_emoji} <b>{symbol}</b> ({side})\n"
                 response += f"  Price: ${price:.4f} | Qty: {qty}\n"
-                response += f"  Time: {time_str} (UTC)\n"
-                response += f"  {pnl_emoji} PnL: <b>${pnl:.2f}</b>\n\n"
+                response += f"  Time: {time_str} | {type_icon}\n\n"
                 
             if len(trades) > display_count:
-                response += f"<i>Showing last {display_count} of {len(trades)} trades for last 24h</i>"
+                response += f"<i>Showing last {display_count} of {len(trades)} trades</i>"
             else:
-                response += f"<i>Total {len(trades)} trades fetched for last 24h</i>"
+                response += f"<i>Total {len(trades)} trades (Lin+Opt)</i>"
             
             keyboard = self.get_navigation_keyboard(exclude='trades')
             await message.edit_text(response, parse_mode='HTML', reply_markup=keyboard)
@@ -729,12 +784,12 @@ class TelegramBot:
 
 
     async def show_daily_pnl(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Show Profit & Loss for the last 24 hours."""
+        """Show Profit & Loss for the last 24 hours (Linear + Options)."""
         if update.callback_query:
             await update.callback_query.answer()
-            message = await update.callback_query.edit_message_text("💰 Calculating 24h PnL...")
+            message = await update.callback_query.edit_message_text("💰 Calculating 24h PnL (Linear + Options)...")
         else:
-            message = await update.message.reply_text("💰 Calculating 24h PnL...")
+            message = await update.message.reply_text("💰 Calculating 24h PnL (Linear + Options)...")
             
         try:
             # Calculate start time (24 hours ago)
@@ -743,15 +798,45 @@ class TelegramBot:
             start_time_dt = now - datetime.timedelta(hours=24)
             start_time = int(start_time_dt.timestamp() * 1000)
 
-            # Fetch data
-            closed_pnl_list = bybit_api.get_closed_pnl(start_time=start_time)
-            positions = bybit_api.get_positions()
+            loop = asyncio.get_running_loop()
+            
+            # Fetch PnL concurrently
+            task_linear = loop.run_in_executor(
+                None, 
+                lambda: bybit_api.get_closed_pnl(category='linear', start_time=start_time)
+            )
+            task_option = loop.run_in_executor(
+                None, 
+                lambda: bybit_api.get_closed_pnl(category='option', start_time=start_time)
+            )
+            
+            # Fetch open positions (Linear only for now, Options usually short term but could check)
+            # bybit_api.get_positions() defaults to 'linear'
+            task_positions = loop.run_in_executor(None, bybit_api.get_positions)
+
+            try:
+                closed_pnl_linear = await task_linear
+            except Exception:
+                closed_pnl_linear = []
+                
+            try:
+                closed_pnl_option = await task_option
+            except Exception:
+                closed_pnl_option = []
+
+            try:
+                positions = await task_positions
+            except Exception:
+                positions = []
             
             # Calculate Realized PnL (24h)
-            realized_pnl = sum(float(item.get('closedPnl', 0)) for item in closed_pnl_list)
-            trade_count = len(closed_pnl_list)
+            pnl_linear = sum(float(item.get('closedPnl', 0)) for item in closed_pnl_linear)
+            pnl_option = sum(float(item.get('closedPnl', 0)) for item in closed_pnl_option)
+            realized_pnl = pnl_linear + pnl_option
             
-            # Calculate Unrealized PnL (Current Open)
+            trade_count = len(closed_pnl_linear) + len(closed_pnl_option)
+            
+            # Calculate Unrealized PnL (Current Open - Linear)
             unrealized_pnl = sum(float(pos.get('unrealisedPnl', 0)) for pos in positions)
             
             # Total PnL
@@ -766,9 +851,11 @@ class TelegramBot:
             response += f"{'='*30}\n\n"
             
             response += f"<b>💵 Realized PnL (24h)</b>\n"
-            response += f"{r_emoji} <b>${realized_pnl:,.2f}</b> ({trade_count} trades)\n\n"
+            response += f"Linear: ${pnl_linear:,.2f}\n"
+            response += f"Options: ${pnl_option:,.2f}\n"
+            response += f"{r_emoji} <b>Total: ${realized_pnl:,.2f}</b> ({trade_count} trades)\n\n"
             
-            response += f"<b>🔓 Unrealized PnL (Open)</b>\n"
+            response += f"<b>🔓 Unrealized PnL (Open Linear)</b>\n"
             response += f"{u_emoji} <b>${unrealized_pnl:,.2f}</b>\n\n"
             
             response += f"{'='*30}\n"
@@ -786,6 +873,10 @@ class TelegramBot:
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle button callbacks."""
         query = update.callback_query
+        
+        # Ensure chat_id is saved
+        if not self.chat_id and update.effective_chat:
+             self._save_chat_id(update.effective_chat.id)
         
         if query.data == 'balance':
             await self.show_balance(update, context)
